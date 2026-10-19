@@ -66,22 +66,24 @@ def build(rd: RawData, period_key: str):
         if s.balance.total_assets else None, source="新浪财经")
 
     add("net_cash", "净现比",
-        (snap.cashflow.operating_net / snap.income.net_profit)
-        if snap.income.net_profit else None, "倍",
-        lambda s: (s.cashflow.operating_net / s.income.net_profit)
-        if s.income.net_profit else None, source="新浪财经")
+        (snap.cashflow.operating_net / snap.income.net_profit * 100)
+        if snap.income.net_profit else None, "%",
+        lambda s: (s.cashflow.operating_net / s.income.net_profit * 100)
+        if s.income.net_profit else None,
+        caliber="经营活动现金流净额 / 净利润 ×100（≥100% 说明利润含金量足）")
 
     add("cash_receive", "收现比",
-        (snap.cashflow.sales_cash / rev) if rev else None, "倍",
-        lambda s: (s.cashflow.sales_cash / s.income.revenue)
-        if s.income.revenue else None, source="新浪财经")
+        (snap.cashflow.sales_cash / rev * 100) if rev else None, "%",
+        lambda s: (s.cashflow.sales_cash / s.income.revenue * 100)
+        if s.income.revenue else None,
+        caliber="销售商品收到现金 / 营业收入 ×100（≥100% 说明收入含金量足）")
 
     # 分红募资比（累计口径）
     div = rd.dividends_total
     ref = rd.refinance_total
     if ref and ref > 0:
         dr_val = div / ref
-        dr_cal = None
+        dr_cal = "累计现金分红 / 累计增发募资（东财口径，IPO 及配股未计入）"
     else:
         cum_np = 0.0
         for p in rd.periods:
@@ -95,6 +97,19 @@ def build(rd: RawData, period_key: str):
         key="dividend_raise", label="分红募资比", value=dr_val, unit="倍",
         yoy=None, yoy_kind="pct", history=None, history_labels=None,
         caliber=dr_cal, source="东方财富",
+    ))
+
+    # 股息率 = 近12个月每股分红(税前) / 现价
+    if rd.dividend_ttm and rd.price:
+        dy_val = rd.dividend_ttm / rd.price * 100
+        dy_cal = f"近12个月每股分红 {rd.dividend_ttm:.3f} 元(税前) / 现价 {rd.price:.2f} 元"
+    else:
+        dy_val = None
+        dy_cal = "近12个月无除息分红记录或行情缺失，暂无法计算"
+    out.append(MetricResult(
+        key="dividend_yield", label="股息率", value=dy_val, unit="%",
+        yoy=None, yoy_kind="pct", history=None, history_labels=None,
+        caliber=dy_cal, source="东方财富/腾讯",
     ))
 
     add("ar_ratio", "应收账款占比",
@@ -140,5 +155,35 @@ def build(rd: RawData, period_key: str):
         (snap.income.net_profit / rev * 100) if rev else None, "%",
         lambda s: (s.income.net_profit / s.income.revenue * 100)
         if s.income.revenue else None, kind_pp=True, source="新浪财经")
+
+    # 扣非净利润同比增速（东财主要指标）
+    kcfj_by_key = {}
+    for p in rd.periods:
+        v = rd.kcfj_raw.get(p.report_date)
+        if v is not None:
+            kcfj_by_key[p.key] = v
+
+    def kcfj_growth(pk):
+        cur = kcfj_by_key.get(pk)
+        prev = kcfj_by_key.get(_prev_year_key(pk) or "")
+        if cur is None or prev in (None, 0):
+            return None
+        return (cur - prev) / abs(prev) * 100
+
+    kg_val = kcfj_growth(period_key)
+    kg_missing = kg_val is None and not kcfj_by_key
+    kg_h, kg_l = [], []
+    for p in reversed(rd.periods[:8]):
+        kg_h.append(kcfj_growth(p.key))
+        kg_l.append(p.label)
+    if kg_missing:
+        kg_cal = "东财主要指标未返回扣非数据，暂无法计算"
+    else:
+        kg_cal = "扣除非经常性损益后的净利润，累计口径同比"
+    out.append(MetricResult(
+        key="kcfj_growth", label="扣非净利润增速", value=kg_val, unit="%",
+        yoy=None, yoy_kind="pct", history=kg_h, history_labels=kg_l,
+        caliber=kg_cal, source="东方财富",
+    ))
 
     return out, cur_period

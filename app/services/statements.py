@@ -1,4 +1,5 @@
 import datetime
+import re
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -8,6 +9,22 @@ from app.config import TTL_STATEMENT, TTL_SEGMENT, TTL_DIVIDEND
 from app.models.schemas import (
     PeriodInfo, SegmentItem, IncomeStmt, BalanceStmt, CashFlowStmt, Snapshot,
 )
+
+# 科目名规范化：新浪不同行业报表的科目带「一、二、」序号前缀，
+# 且冒号全角/半角混用（如「一、营业收入」「减:所得税费用」）。
+_PREFIX = re.compile(r"^[一二三四五六七八九十]+[、.．]\s*")
+
+
+def _norm_rows(raw: dict) -> dict:
+    out = {}
+    for name, row in raw.items():
+        out.setdefault(name, row)
+        variants = {_PREFIX.sub("", name).strip(),
+                    name.replace("：", ":"), name.replace(":", "：")}
+        for v in list(variants):
+            out.setdefault(v, row)
+            out.setdefault(_PREFIX.sub("", v).strip(), row)
+    return out
 
 
 @dataclass
@@ -21,11 +38,14 @@ class RawData:
     segments: dict = field(default_factory=dict)         # 日期 -> [SegmentItem]
     dividends_total: float = 0.0
     refinance_total: float = 0.0
+    price: Optional[float] = None                       # 现价（股息率用）
+    dividend_ttm: Optional[float] = None                # 近12个月每股分红(税前)
+    kcfj_raw: dict = field(default_factory=dict)         # 日期 -> 扣非净利润
 
 
 INCOME_MAP = {
     "revenue": ["营业收入", "营业总收入"],
-    "cost": ["营业成本"],
+    "cost": ["营业成本", "营业支出"],
     "tax_surcharge": ["税金及附加", "营业税金及附加"],
     "selling_expense": ["销售费用"],
     "admin_expense": ["管理费用"],
@@ -145,14 +165,29 @@ async def collect(code: str) -> RawData:
                            lambda: sina.get_statement(code, "balance"))
     cf_raw = await cached(f"cf:{code}", TTL_STATEMENT,
                           lambda: sina.get_statement(code, "cashflow"))
+    inc_raw = _norm_rows(inc_raw)
+    bal_raw = _norm_rows(bal_raw)
+    cf_raw = _norm_rows(cf_raw)
     seg_map_raw = await cached(f"seg:{code}", TTL_SEGMENT,
                                lambda: eastmoney.get_mainop_map(code))
 
-    # 报告期列表（来自利润表，降序）
+    # 报告期列表（来自利润表营收行，降序；缺失时取日期最多的科目行）
+    rev_row = inc_raw.get("营业收入") or inc_raw.get("营业总收入") or {}
     dates = sorted(
-        (d for d in inc_raw.get("营业收入", {}) if inc_raw["营业收入"].get(d) is not None),
+        (d for d in rev_row if rev_row.get(d) is not None),
         reverse=True,
     )
+    if not dates:
+        best_row, best_n = None, 0
+        for row in inc_raw.values():
+            n = sum(1 for v in row.values() if v is not None)
+            if n > best_n:
+                best_row, best_n = row, n
+        if best_row:
+            dates = sorted(
+                (d for d in best_row if best_row.get(d) is not None),
+                reverse=True,
+            )
     periods = [make_period(d) for d in dates]
 
     # 构建 segments 并计算同比
@@ -178,9 +213,31 @@ async def collect(code: str) -> RawData:
                        lambda: eastmoney.get_dividends_total(code))
     ref = await cached(f"ref:{code}", TTL_DIVIDEND,
                        lambda: eastmoney.get_refinance_total(code))
+    supp = await cached(f"in supp:{code}", TTL_STATEMENT,
+                        lambda: eastmoney.get_income_supp(code))
+    div_ttm = await cached(f"divttm:{code}", TTL_DIVIDEND,
+                           lambda: eastmoney.get_dividend_ttm(code))
+    kcfj = await cached(f"kcfj:{code}", TTL_STATEMENT,
+                        lambda: eastmoney.get_kcfj_map(code))
+
+    # 东财减值明细兜底：新浪缺行或某期值为空/0 时逐期补齐
+    # （东财日期为 YYYY-MM-DD，新浪利润表日期为 YYYYMMDD，需转换）
+    merged_income = dict(inc_raw)
+    for row_name, key in (("信用减值损失", "credit_impairment"),
+                          ("资产减值损失", "asset_impairment")):
+        row = dict(merged_income.get(row_name) or {})
+        for d, item in supp.items():
+            dk = d.replace("-", "")
+            cur = row.get(dk)
+            if cur in (None, 0) and key in item:
+                row[dk] = item[key]
+        if row:
+            merged_income[row_name] = row
 
     return RawData(
         code=code, name=quote.get("name", code), periods=periods,
-        income_raw=inc_raw, balance_raw=bal_raw, cashflow_raw=cf_raw,
+        income_raw=merged_income, balance_raw=bal_raw, cashflow_raw=cf_raw,
         segments=segments, dividends_total=div or 0.0, refinance_total=ref or 0.0,
+        price=quote.get("price"), dividend_ttm=div_ttm or 0.0,
+        kcfj_raw=kcfj or {},
     )

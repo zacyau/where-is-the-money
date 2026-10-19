@@ -9,11 +9,11 @@
     if (m.yoy == null) return "";
     const up = m.yoy >= 0;
     const cls = up ? "up" : "down";
-    const arrow = up ? "▲" : "▼";
+    const sign = up ? "+" : "-";
     const txt = m.yoy_kind === "pp"
-      ? Math.abs(m.yoy).toFixed(2) + "pp"
-      : Math.abs(m.yoy).toFixed(1) + "%";
-    return `<div class="metric-yoy ${cls}">${arrow} 同比 ${txt}</div>`;
+      ? sign + Math.abs(m.yoy).toFixed(2) + "pp"
+      : sign + Math.abs(m.yoy).toFixed(1) + "%";
+    return `<div class="metric-yoy ${cls}">同比 ${txt}</div>`;
   }
 
   function sparkline(history) {

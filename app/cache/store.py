@@ -41,7 +41,8 @@ def delete(key):
 
 def clear_code(code: str):
     for k in (f"q:{code}", f"inc:{code}", f"bal:{code}", f"cf:{code}",
-             f"seg:{code}", f"div:{code}", f"ref:{code}"):
+              f"seg:{code}", f"div:{code}", f"ref:{code}",
+              f"in supp:{code}", f"divttm:{code}", f"kcfj:{code}"):
         delete(k)
 
 

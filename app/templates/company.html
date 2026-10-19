@@ -3,6 +3,7 @@
 {% block content %}
 <section class="company">
   <div class="company-head">
+    <a class="back-btn" href="/">&#8592; 返回查询</a>
     <h1>{{ view.name }}的钱去哪了</h1>
     <div class="subtitle"><span id="period-label">{{ view.period.label }}</span> · 单位：亿元</div>
     <div class="quote">现价 <b>{{ view.quote.price if view.quote.price is not none else '—' }}</b> · {{ view.code }}</div>
@@ -21,6 +22,7 @@
       数据平衡提示：{% for d in view.degraded %}{{ d }}{% endfor %}
     </div>
     {% endif %}
+    <div class="src-note">数据来源：新浪财经、东方财富、腾讯行情（多源核对）</div>
   </div>
 
   <h2 class="section-title">质量指标</h2>

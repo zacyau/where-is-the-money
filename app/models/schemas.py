@@ -101,6 +101,8 @@ class FlowNode:
     value: float
     role: str                       # gray/green/red/blue/profit/expense...
     signed: bool = False            # 是否展示带符号（如其他经营收益）
+    yoy: Optional[float] = None     # 同比%（分部/营收/成本/净利润）
+    ratio: Optional[float] = None   # 占营收比（分部）
 
 
 @dataclass

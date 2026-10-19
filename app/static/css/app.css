@@ -89,6 +89,13 @@ body {
   display: flex; flex-direction: column; gap: 4px; transition: border-color .15s;
 }
 .warm-card:hover { border-color: var(--blue); }
+
+.back-btn {
+  display: inline-block; margin-bottom: 10px; color: var(--muted);
+  text-decoration: none; font-size: 13px; padding: 4px 10px;
+  border: 1px solid var(--line); border-radius: 999px; transition: all .15s;
+}
+.back-btn:hover { color: var(--blue); border-color: var(--blue); }
 .wc-name { font-weight: 700; }
 .wc-code { color: var(--muted); font-size: 12px; }
 .wc-price { color: var(--red); font-size: 13px; }
@@ -112,8 +119,10 @@ body {
   padding: 18px; margin-bottom: 26px;
 }
 .sankey-card { overflow-x: auto; }
-#sankey { width: 100%; min-width: 760px; }
+#sankey { width: 100%; min-width: 1000px; }
 #sankey svg { width: 100%; height: auto; display: block; }
+.src-note { margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--line);
+  color: var(--muted); font-size: 12px; display: flex; justify-content: space-between; }
 
 .warn { margin-top: 10px; color: #b54708; font-size: 13px; background: #fff4e6; padding: 10px 12px; border-radius: 8px; }
 

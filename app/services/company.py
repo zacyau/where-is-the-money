@@ -9,7 +9,8 @@ def flow_to_dict(fr: FlowResult) -> dict:
     return {
         "nodes": [
             {"id": n.id, "col": n.col, "label": n.label,
-             "value": n.value, "role": n.role, "signed": n.signed}
+             "value": n.value, "role": n.role, "signed": n.signed,
+             "yoy": n.yoy, "ratio": n.ratio}
             for n in fr.nodes
         ],
         "links": [
@@ -41,7 +42,7 @@ async def get_company_view(code: str, period_key: str = None) -> dict:
     if period_key not in keys:
         period_key = keys[0]
     snap: Snapshot = build_snapshot(rd, period_key)
-    fr = flow_svc.build(snap)
+    fr = flow_svc.build(snap, rd)
     ms, cur_period = metrics_svc.build(rd, period_key)
     quote = await cached(f"q:{code}", 60, lambda: tencent.get_quote(code))
 

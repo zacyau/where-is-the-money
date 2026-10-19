@@ -12,7 +12,20 @@ COL = {
 MAX_SEGMENTS = 6
 
 
-def build(snap: Snapshot) -> FlowResult:
+def _prev_year_key(period_key: str):
+    for suf in ("H1", "Q1", "Q3", "Y"):
+        if period_key.endswith(suf):
+            return f"{int(period_key[:4]) - 1}{suf}"
+    return None
+
+
+def _yoy(cur, prev):
+    if cur is None or prev in (None, 0):
+        return None
+    return (cur - prev) / abs(prev) * 100
+
+
+def build(snap: Snapshot, rd=None) -> FlowResult:
     inc, bal, cf = snap.income, snap.balance, snap.cashflow
     rev = inc.revenue
     cost = inc.cost
@@ -32,60 +45,98 @@ def build(snap: Snapshot) -> FlowResult:
     parent = inc.parent_net_profit
     minor = inc.minority_interest
 
+    # 同比（营收/成本/净利润，上年同期口径）
+    rev_yoy = cost_yoy = np_yoy = None
+    if rd is not None:
+        pk = _prev_year_key(snap.period.key)
+        if pk:
+            from app.services.statements import build_snapshot
+            prev_snap = build_snapshot(rd, pk) if pk in {
+                p.key for p in rd.periods} else None
+            if prev_snap is not None:
+                rev_yoy = _yoy(rev, prev_snap.income.revenue)
+                cost_yoy = _yoy(cost, prev_snap.income.cost)
+                np_yoy = _yoy(np_, prev_snap.income.net_profit)
+
     nodes: list = []
     links: list = []
 
-    # 来源（主营构成）
+    # 来源（主营构成）：正值分部按值降序展示；
+    # 「其他」「其他(补充)」及含「抵销」的负值项合并为「其他(含抵销)」（对标参考图口径）
+    def _is_rest(s):
+        nm = s.name or ""
+        return s.income < 0 or "抵销" in nm or nm in ("其他", "其他(补充)", "其他（补充）")
+
     segs = list(snap.segments)
     seg_total = sum(s.income for s in segs)
-    shown = segs[:MAX_SEGMENTS]
-    if len(segs) > MAX_SEGMENTS:
-        rest = sum(s.income for s in segs[MAX_SEGMENTS:])
-        shown.append(type("S", (), {"name": "其他(含抵销)", "income": rest,
-                                    "ratio": rest / seg_total if seg_total else 0,
+    main = sorted((s for s in segs if not _is_rest(s)),
+                  key=lambda x: -x.income)
+    rest_list = [s for s in segs if _is_rest(s)]
+    if len(main) > MAX_SEGMENTS:
+        rest_list.extend(main[MAX_SEGMENTS:])
+        main = main[:MAX_SEGMENTS]
+    shown = list(main)
+    rest_income = sum(s.income for s in rest_list)
+    if rest_list:
+        shown.append(type("S", (), {"name": "其他(含抵销)", "income": rest_income,
+                                    "ratio": rest_income / seg_total if seg_total else 0,
                                     "yoy": None})())
     for i, s in enumerate(shown):
         nid = f"seg{i}"
         nodes.append(FlowNode(id=nid, col=COL["seg"], label=s.name,
-                              value=s.income, role="gray"))
+                              value=s.income, role="gray",
+                              yoy=s.yoy, ratio=s.ratio))
         links.append(FlowLink(source=nid, target="rev", value=s.income, role="gray"))
 
-    nodes.append(FlowNode(id="rev", col=COL["rev"], label="营业收入", value=rev, role="gray"))
-    nodes.append(FlowNode(id="cost", col=COL["cost"], label="营业成本", value=cost, role="green"))
-    nodes.append(FlowNode(id="gross", col=COL["cost"], label="毛利", value=gross, role="red"))
-    links.append(FlowLink(source="rev", target="cost", value=cost, role="green"))
+    nodes.append(FlowNode(id="rev", col=COL["rev"], label="营业收入", value=rev,
+                          role="rev", yoy=rev_yoy))
+    nodes.append(FlowNode(id="cost", col=COL["cost"], label="营业成本", value=cost,
+                          role="cost", yoy=cost_yoy))
+    nodes.append(FlowNode(id="gross", col=COL["cost"], label="毛利", value=gross,
+                          role="red"))
+    links.append(FlowLink(source="rev", target="cost", value=cost, role="cost"))
     links.append(FlowLink(source="rev", target="gross", value=gross, role="red"))
 
     nodes.append(FlowNode(id="expense", col=COL["expense"], label="期间费用",
-                          value=period_exp, role="green"))
+                          value=period_exp, role="cost"))
     nodes.append(FlowNode(id="tax", col=COL["expense"], label="税金及附加",
                           value=tax, role="blue"))
     nodes.append(FlowNode(id="impair", col=COL["expense"], label="减值及处置损失",
-                          value=impair, role="green"))
+                          value=impair, role="cost"))
     nodes.append(FlowNode(id="other", col=COL["expense"], label="其他经营收益",
                           value=other, role="red", signed=True))
-    links.append(FlowLink(source="gross", target="expense", value=period_exp, role="green"))
+    links.append(FlowLink(source="gross", target="expense", value=period_exp, role="cost"))
     links.append(FlowLink(source="gross", target="tax", value=tax, role="blue"))
-    links.append(FlowLink(source="gross", target="impair", value=impair, role="green"))
-    links.append(FlowLink(source="gross", target="other",
-                          value=abs(other), role="red"))
-    links.append(FlowLink(source="other", target="op", value=abs(other),
-                          role="red", sign="+" if other >= 0 else "-"))
+    links.append(FlowLink(source="gross", target="impair", value=impair, role="cost"))
+    if other >= 0:
+        # 其他经营收益为收益：从毛利列下方流入营业利润
+        links.append(FlowLink(source="other", target="op", value=other,
+                              role="red", sign="+"))
+        links.append(FlowLink(source="gross", target="op", value=base_op, role="red"))
+    else:
+        # 为损失：由毛利流出，作为终损节点
+        links.append(FlowLink(source="gross", target="other", value=abs(other),
+                              role="red", sign="-"))
+        links.append(FlowLink(source="gross", target="op", value=op, role="red"))
 
-    base_op = gross - period_exp - tax - impair
     nodes.append(FlowNode(id="op", col=COL["op"], label="营业利润", value=op, role="red"))
-    links.append(FlowLink(source="gross", target="op", value=base_op, role="red"))
 
     nodes.append(FlowNode(id="nonbiz", col=COL["nonbiz"], label="营业外净收入",
                           value=nonbiz, role="red", signed=True))
     nodes.append(FlowNode(id="tp", col=COL["tp"], label="利润总额", value=tp, role="red"))
-    links.append(FlowLink(source="op", target="tp", value=op - abs(nonbiz), role="red"))
-    links.append(FlowLink(source="nonbiz", target="tp", value=abs(nonbiz),
-                          role="red", sign="+" if nonbiz >= 0 else "-"))
+    if nonbiz >= 0:
+        links.append(FlowLink(source="op", target="tp", value=op, role="red"))
+        links.append(FlowLink(source="nonbiz", target="tp", value=nonbiz,
+                              role="red", sign="+"))
+    else:
+        links.append(FlowLink(source="op", target="tp", value=tp, role="red"))
+        links.append(FlowLink(source="op", target="nonbiz", value=abs(nonbiz),
+                              role="red", sign="-"))
 
     nodes.append(FlowNode(id="taxfee", col=COL["taxfee"], label="所得税费用",
                           value=it, role="blue"))
-    nodes.append(FlowNode(id="np", col=COL["np"], label="净利润", value=np_, role="red"))
+    nodes.append(FlowNode(id="np", col=COL["np"], label="净利润", value=np_,
+                          role="red", yoy=np_yoy))
     links.append(FlowLink(source="tp", target="taxfee", value=it, role="blue"))
     links.append(FlowLink(source="tp", target="np", value=tp - it, role="red"))
 
@@ -93,7 +144,7 @@ def build(snap: Snapshot) -> FlowResult:
                           value=minor, role="green"))
     nodes.append(FlowNode(id="parent", col=COL["parent"], label="归母净利润",
                           value=parent, role="red"))
-    links.append(FlowLink(source="np", target="minor", value=minor, role="green"))
+    links.append(FlowLink(source="np", target="minor", value=minor, role="cost"))
     links.append(FlowLink(source="np", target="parent", value=parent, role="red"))
 
     scale = max(rev, op, tp, np_, 1.0)
