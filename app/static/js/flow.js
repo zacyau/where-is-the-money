@@ -154,7 +154,7 @@
     Object.keys(ins).forEach((id) => assign(ins[id], pos[id], "_ty"));
 
     // ---- 生成 SVG ----
-    let svg = `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">`;
+    let svg = "";
 
     // 缎带
     links.forEach((l) => {
@@ -180,12 +180,14 @@
 
     // ---- 标签 ----
     const texts = [];
+    let maxBottom = 0;   // 所有文字块的最大底部 y（含字高余量）
     function block(x, y, lines, anchor) {
       let cy = y;
       lines.forEach((ln) => {
         texts.push(
           `<text x="${x}" y="${cy}" text-anchor="${anchor}" font-size="${ln.size}" ` +
           `font-weight="${ln.weight}" fill="${ln.color}">${esc(ln.t)}</text>`);
+        maxBottom = Math.max(maxBottom, cy + ln.size * 0.4);
         cy += ln.lh;
       });
     }
@@ -295,8 +297,15 @@
          L(yi(byId.minor.value), 15, T.red, 700)], "middle");
 
     svg += texts.join("");
-    svg += `</svg>`;
-    container.innerHTML = svg;
+
+    // 动态画布高度：底部标签可能超出固定版心（T_BOT=632），按实际内容扩展，避免文字被截断
+    Object.keys(pos).forEach((id) => {
+      maxBottom = Math.max(maxBottom, pos[id].y + pos[id].h);
+    });
+    const H2 = Math.max(H, Math.ceil(maxBottom + 14));
+    container.innerHTML =
+      `<svg viewBox="0 0 ${W} ${H2}" xmlns="http://www.w3.org/2000/svg">` +
+      svg + `</svg>`;
 
     // 交互：hover 高亮同链
     const ribs = container.querySelectorAll(".rib");

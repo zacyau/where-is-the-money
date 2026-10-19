@@ -90,7 +90,16 @@ class MetricResult:
     history: Optional[List[float]] = None
     history_labels: Optional[List[str]] = None
     caliber: Optional[str] = None
+    formula: Optional[str] = None   # 计算公式
+    process: Optional[str] = None   # 代入实际数值的计算过程
+    category: Optional[str] = None  # 指标分类（用于卡片分组排序）
     source: Optional[str] = None
+
+
+# 指标分类展示顺序（build() 末尾按此排序）
+METRIC_CATEGORY_ORDER = [
+    "盈利能力", "成长性", "现金流含金量", "股东回报", "资产安全性", "营运效率",
+]
 
 
 @dataclass

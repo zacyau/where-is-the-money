@@ -30,7 +30,9 @@ def metrics_to_dict(m: MetricResult) -> dict:
         "key": m.key, "label": m.label, "value": m.value, "unit": m.unit,
         "yoy": m.yoy, "yoy_kind": m.yoy_kind,
         "history": m.history, "history_labels": m.history_labels,
-        "caliber": m.caliber, "source": m.source,
+        "caliber": m.caliber, "formula": m.formula,
+        "process": m.process, "category": m.category,
+        "source": m.source,
     }
 
 

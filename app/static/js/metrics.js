@@ -16,38 +16,36 @@
     return `<div class="metric-yoy ${cls}">同比 ${txt}</div>`;
   }
 
-  function sparkline(history) {
-    if (!history || history.filter((x) => x != null).length < 2) return "";
-    const vals = history.filter((x) => x != null);
-    const min = Math.min(...vals), max = Math.max(...vals);
-    const span = max - min || 1;
-    const w = 100, h = 34, pad = 3;
-    const n = history.length;
-    const pts = history.map((v, i) => {
-      const x = pad + (i / (n - 1)) * (w - pad * 2);
-      const y = h - pad - ((v == null ? min : v) - min) / span * (h - pad * 2);
-      return [x, y];
-    });
-    const d = pts.map((p, i) => (i ? "L" : "M") + p[0].toFixed(1) + "," + p[1].toFixed(1)).join(" ");
-    const last = pts[pts.length - 1];
-    return `<svg class="spark" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" ` +
-      `width="100%" height="${h}">` +
-      `<path d="${d}" fill="none" stroke="#1c7ed6" stroke-width="1.5"></path>` +
-      `<circle cx="${last[0].toFixed(1)}" cy="${last[1].toFixed(1)}" r="2" fill="#1c7ed6"></circle>` +
-      `</svg>`;
+  function cardHtml(m) {
+    const formula = m.formula
+      ? `<div class="metric-formula"><span class="fld">公式</span>${m.formula}</div>` : "";
+    const process = m.process
+      ? `<div class="metric-process"><span class="fld">过程</span>${m.process}</div>` : "";
+    return `<div class="metric-card">
+      <div class="metric-label">${m.label}</div>
+      <div class="metric-value">${fmtVal(m)}<span class="unit">${m.unit}</span></div>
+      ${yoyHtml(m)}
+      ${formula}
+      ${process}
+    </div>`;
   }
 
   window.renderMetrics = function (container, metrics) {
-    container.innerHTML = metrics.map((m) => {
-      const cal = m.caliber
-        ? `<div class="metric-cal" title="${m.caliber}">${m.caliber}</div>` : "";
-      return `<div class="metric-card">
-        <div class="metric-label">${m.label}</div>
-        <div class="metric-value">${fmtVal(m)}<span class="unit">${m.unit}</span></div>
-        ${yoyHtml(m)}
-        <div class="metric-spark">${sparkline(m.history)}</div>
-        ${cal}
-      </div>`;
-    }).join("");
+    // 按分类分组（后端已按分类排序，这里保持出现顺序）
+    const groups = [];
+    const byCat = {};
+    metrics.forEach((m) => {
+      const cat = m.category || "其他";
+      if (!byCat[cat]) {
+        byCat[cat] = [];
+        groups.push({ cat, items: byCat[cat] });
+      }
+      byCat[cat].push(m);
+    });
+    container.innerHTML = groups.map((g) =>
+      `<div class="metric-group">
+        <div class="metric-group-title">${g.cat}</div>
+        <div class="metric-grid">${g.items.map(cardHtml).join("")}</div>
+      </div>`).join("");
   };
 })();

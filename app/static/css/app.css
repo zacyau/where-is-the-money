@@ -128,10 +128,15 @@ body {
 
 .section-title { font-size: 18px; font-weight: 700; margin: 6px 0 16px; }
 
-.metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+.metric-group { margin-bottom: 24px; }
+.metric-group-title {
+  font-size: 14px; font-weight: 700; margin: 0 0 10px;
+  padding-left: 9px; border-left: 3px solid var(--blue); line-height: 1.3;
+}
+.metric-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
 .metric-card {
   background: var(--card); border: 1px solid var(--line); border-radius: 12px;
-  padding: 16px; min-height: 118px; display: flex; flex-direction: column; gap: 6px;
+  padding: 14px 16px; display: flex; flex-direction: column; gap: 5px;
 }
 .metric-label { color: var(--muted); font-size: 13px; }
 .metric-value { font-size: 24px; font-weight: 800; }
@@ -139,8 +144,17 @@ body {
 .metric-yoy { font-size: 12px; }
 .metric-yoy.up { color: var(--red); }
 .metric-yoy.down { color: var(--green); }
-.metric-spark { margin-top: auto; }
-.metric-cal { font-size: 11px; color: #b54708; margin-top: 2px; }
+.metric-formula, .metric-process {
+  font-size: 11px; color: #6b7280; line-height: 1.55;
+  word-break: break-all; margin-top: 2px;
+}
+.metric-process { color: #9a7b0a; background: #fdf9ec; padding: 4px 7px;
+  border-radius: 6px; font-variant-numeric: tabular-nums; }
+.metric-formula .fld, .metric-process .fld {
+  display: inline-block; font-size: 10px; color: var(--muted);
+  border: 1px solid var(--line); border-radius: 4px;
+  padding: 0 4px; margin-right: 5px; vertical-align: 1px;
+}
 
 .raw { margin-top: 26px; }
 .raw summary { cursor: pointer; color: var(--muted); font-size: 13px; }
@@ -154,6 +168,6 @@ body {
 
 @media (max-width: 760px) {
   .container { padding: 18px; }
-  .metrics { grid-template-columns: repeat(2, 1fr); }
+  .metric-grid { grid-template-columns: repeat(2, 1fr); }
   .company-head h1 { font-size: 24px; }
 }
