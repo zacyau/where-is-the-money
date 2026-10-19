@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}搜索 · 钱去哪了{% endblock %}
+{% block content %}
+<section class="search-hero">
+  <h1>钱去哪了</h1>
+  <p class="lead">输入股票代码或名称，看看一家公司的钱从哪来、到哪去。</p>
+  <div class="search-box">
+    <input id="q" autocomplete="off" placeholder="如 600309 / 万华化学 / 贵州茅台">
+    <div id="suggest" class="suggest" hidden></div>
+  </div>
+  <div class="warm">
+    <div class="warm-title">热门公司</div>
+    <div class="warm-grid">
+      {% for w in warm %}
+      <a class="warm-card" href="/c/{{ w.code }}">
+        <span class="wc-name">{{ w.name }}</span>
+        <span class="wc-code">{{ w.code }}</span>
+        <span class="wc-price">{{ w.price if w.price is not none else '—' }}</span>
+      </a>
+      {% endfor %}
+    </div>
+  </div>
+</section>
+{% endblock %}
+{% block scripts %}
+<script src="/static/js/search.js"></script>
+{% endblock %}

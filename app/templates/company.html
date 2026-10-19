@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}{{ view.name }}的钱去哪了{% endblock %}
+{% block content %}
+<section class="company">
+  <div class="company-head">
+    <h1>{{ view.name }}的钱去哪了</h1>
+    <div class="subtitle"><span id="period-label">{{ view.period.label }}</span> · 单位：亿元</div>
+    <div class="quote">现价 <b>{{ view.quote.price if view.quote.price is not none else '—' }}</b> · {{ view.code }}</div>
+  </div>
+
+  <div class="period-bar" id="period-bar">
+    {% for p in view.periods %}
+    <button class="pbtn {% if p.key == view.period.key %}active{% endif %}" data-key="{{ p.key }}">{{ p.label }}</button>
+    {% endfor %}
+  </div>
+
+  <div class="card sankey-card">
+    <div id="sankey"></div>
+    {% if view.degraded %}
+    <div class="warn">
+      数据平衡提示：{% for d in view.degraded %}{{ d }}{% endfor %}
+    </div>
+    {% endif %}
+  </div>
+
+  <h2 class="section-title">质量指标</h2>
+  <div class="metrics" id="metrics"></div>
+
+  <details class="raw">
+    <summary>原始科目（{{ view.period.label }}，单位：亿元）</summary>
+    <table>
+      <thead><tr><th>科目</th><th>金额</th></tr></thead>
+      <tbody>
+      {% for r in view.raw %}
+      <tr><td>{{ r.name }}</td><td class="num">{{ '%.2f'|format(r.value/1e8) }}</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </details>
+</section>
+<script id="view-data" type="application/json">{{ view | tojson }}</script>
+{% endblock %}
+{% block scripts %}
+<script src="/static/js/flow.js"></script>
+<script src="/static/js/metrics.js"></script>
+<script src="/static/js/company.js"></script>
+{% endblock %}

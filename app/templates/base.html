@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}钱去哪了{% endblock %}</title>
+  <link rel="stylesheet" href="/static/css/app.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/">钱去哪了</a>
+    <span class="brand-sub">资金流向分析</span>
+  </header>
+  <main class="container">
+    {% block content %}{% endblock %}
+  </main>
+  <footer class="footer">
+    数据来源：腾讯财经（行情）· 东方财富（主营构成 / 分红募资）· 新浪财经（三大报表明细）。
+    本页仅供研究参考，不构成投资建议。
+  </footer>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

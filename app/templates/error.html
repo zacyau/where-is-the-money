@@ -1,0 +1,8 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="error">
+  <h1>无法加载 {{ code }}</h1>
+  <p class="err">{{ err }}</p>
+  <a class="back" href="/">返回首页</a>
+</section>
+{% endblock %}
