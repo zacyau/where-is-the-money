@@ -39,7 +39,8 @@ class RawData:
     dividends_total: float = 0.0
     refinance_total: float = 0.0
     price: Optional[float] = None                       # 现价（股息率用）
-    dividend_ttm: Optional[float] = None                # 近12个月每股分红(税前)
+    dividend_prev_year: Optional[float] = None          # 上一完整自然年每股分红(税前)
+    dividend_prev_year_label: Optional[str] = None      # 上一完整自然年，如 "2025"
     kcfj_raw: dict = field(default_factory=dict)         # 日期 -> 扣非净利润
 
 
@@ -215,8 +216,10 @@ async def collect(code: str) -> RawData:
                        lambda: eastmoney.get_refinance_total(code))
     supp = await cached(f"in supp:{code}", TTL_STATEMENT,
                         lambda: eastmoney.get_income_supp(code))
-    div_ttm = await cached(f"divttm:{code}", TTL_DIVIDEND,
-                           lambda: eastmoney.get_dividend_ttm(code))
+    cur_year = datetime.date.today().year
+    prev_year = cur_year - 1
+    div_prev = await cached(f"divy:{code}:{prev_year}", TTL_DIVIDEND,
+                            lambda: eastmoney.get_dividend_year(code, prev_year))
     kcfj = await cached(f"kcfj:{code}", TTL_STATEMENT,
                         lambda: eastmoney.get_kcfj_map(code))
 
@@ -238,6 +241,8 @@ async def collect(code: str) -> RawData:
         code=code, name=quote.get("name", code), periods=periods,
         income_raw=merged_income, balance_raw=bal_raw, cashflow_raw=cf_raw,
         segments=segments, dividends_total=div or 0.0, refinance_total=ref or 0.0,
-        price=quote.get("price"), dividend_ttm=div_ttm or 0.0,
+        price=quote.get("price"),
+        dividend_prev_year=div_prev or 0.0,
+        dividend_prev_year_label=str(prev_year),
         kcfj_raw=kcfj or {},
     )

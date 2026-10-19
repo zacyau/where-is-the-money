@@ -49,21 +49,46 @@ def build(rd: RawData, period_key: str):
 
     rev = snap.income.revenue
 
-    add("roe", "ROE",
-        (snap.income.parent_net_profit / _avg(snap.balance.parent_equity,
-            snap.prior_balance.parent_equity if snap.prior_balance else None) * 100)
-        if snap.balance.parent_equity else None, "%",
-        lambda s: (s.income.parent_net_profit / _avg(s.balance.parent_equity,
-            s.prior_balance.parent_equity if s.prior_balance else None) * 100)
-        if s.balance.parent_equity else None, source="新浪财经")
+    def _ttm_roe_roa(pk, income_field, balance_field):
+        """TTM 口径 ROE/ROA。
 
-    add("roa", "ROA",
-        (snap.income.net_profit / _avg(snap.balance.total_assets,
-            snap.prior_balance.total_assets if snap.prior_balance else None) * 100)
-        if snap.balance.total_assets else None, "%",
-        lambda s: (s.income.net_profit / _avg(s.balance.total_assets,
-            s.prior_balance.total_assets if s.prior_balance else None) * 100)
-        if s.balance.total_assets else None, source="新浪财经")
+        TTM 净利润 = 当期累计 − 去年同期同周期累计 + 去年全年累计
+                    （当期为年报时上式自然退化为当年全年净利润）
+        分母（平均）= (当期期末值 + 去年同期同周期期末值) / 2
+        解决中报/季报净利润为「累计值」导致 ROE/ROA 被低估的问题。
+        """
+        cur = build_snapshot(rd, pk)
+        if not cur:
+            return None
+        cy = cur.period.year
+        prev_same = build_snapshot(rd, _prev_year_key(pk))
+        prev_year = build_snapshot(rd, f"{cy - 1}Y")
+        ci = getattr(cur.income, income_field)
+        if prev_same is not None and prev_year is not None:
+            inc = ci - getattr(prev_same.income, income_field) + getattr(prev_year.income, income_field)
+        else:
+            inc = ci  # 去年同周期/去年全年数据缺失，退化为当期累计
+        cb = getattr(cur.balance, balance_field)
+        denom = _avg(cb, getattr(prev_same.balance, balance_field)) if prev_same is not None else cb
+        if not denom:
+            return None
+        return inc / denom * 100
+
+    def roe_fn(s):
+        return _ttm_roe_roa(s.period.key, "parent_net_profit", "parent_equity")
+
+    def roa_fn(s):
+        return _ttm_roe_roa(s.period.key, "net_profit", "total_assets")
+
+    add("roe", "ROE", roe_fn(snap), "%", roe_fn,
+        caliber="TTM 口径：滚动12个月归母净利润 / 平均归母净资产 ×100；"
+                "中报/季报净利润为累计值会低估，故取滚动12个月",
+        source="新浪财经")
+
+    add("roa", "ROA", roa_fn(snap), "%", roa_fn,
+        caliber="TTM 口径：滚动12个月净利润 / 平均总资产 ×100；"
+                "中报/季报净利润为累计值会低估，故取滚动12个月",
+        source="新浪财经")
 
     add("net_cash", "净现比",
         (snap.cashflow.operating_net / snap.income.net_profit * 100)
@@ -99,13 +124,16 @@ def build(rd: RawData, period_key: str):
         caliber=dr_cal, source="东方财富",
     ))
 
-    # 股息率 = 近12个月每股分红(税前) / 现价
-    if rd.dividend_ttm and rd.price:
-        dy_val = rd.dividend_ttm / rd.price * 100
-        dy_cal = f"近12个月每股分红 {rd.dividend_ttm:.3f} 元(税前) / 现价 {rd.price:.2f} 元"
+    # 股息率 = 上一个完整自然年每股分红(税前) / 现价
+    # 多次分红下 TTM 会跨年混算、今年至今又不完整，故取「上一个完整自然年」全部分红。
+    dy_label = rd.dividend_prev_year_label or "上一年"
+    dy_per = rd.dividend_prev_year
+    if dy_per and rd.price:
+        dy_val = dy_per / rd.price * 100
+        dy_cal = f"{dy_label}年度每股分红 {dy_per:.3f} 元(税前) / 现价 {rd.price:.2f} 元"
     else:
         dy_val = None
-        dy_cal = "近12个月无除息分红记录或行情缺失，暂无法计算"
+        dy_cal = f"{dy_label}年度无除息分红记录或行情缺失，暂无法计算"
     out.append(MetricResult(
         key="dividend_yield", label="股息率", value=dy_val, unit="%",
         yoy=None, yoy_kind="pct", history=None, history_labels=None,

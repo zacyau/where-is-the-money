@@ -1,4 +1,4 @@
-from app.providers.base import fetch_json, ProviderError
+from app.providers.base import fetch_json, fetch_text, ProviderError
 
 EM_URL = "https://datacenter-web.eastmoney.com/api/data/v1/get"
 
@@ -113,50 +113,46 @@ async def get_income_supp(code: str, periods: int = 16) -> dict:
     return out
 
 
-async def get_dividend_ttm(code: str) -> float:
-    """近12个月（按除息日）每股分红合计，税前，元/股。东财主源 + 网易兜底。"""
+async def get_dividend_year(code: str, year: int) -> float:
+    """某自然年(按除息日)每股分红合计，税前，元/股。东财主源 + 网易兜底。
+
+    用于股息率：取「上一个完整自然年」的全部分红，避免多次分红下
+    TTM（跨年混算）或「今年至今」（不完整）导致的口径偏差。
+    """
     try:
-        ttm = await _dividend_ttm_em(code)
+        val = await _dividend_year_em(code, year)
     except Exception:  # noqa: BLE001
-        ttm = 0.0
-    if ttm:
-        return ttm
+        val = 0.0
+    if val:
+        return val
     try:
-        return await _dividend_ttm_netease(code)
+        return await _dividend_year_netease(code, year)
     except Exception:  # noqa: BLE001
         return 0.0
 
 
-async def _dividend_ttm_em(code: str) -> float:
+async def _dividend_year_em(code: str, year: int) -> float:
     num, _ = _codes(code)
     rows = await _em("RPT_SHAREBONUS_DET", "ALL", num, size=300)
-    import datetime
-    cutoff = datetime.date.today() - datetime.timedelta(days=365)
-    ttm = 0.0
+    ystr = str(year)
+    total = 0.0
     for r in rows:
         ex = (r.get("EX_DIVIDEND_DATE") or "")[:10]
-        if not ex:
-            continue
-        try:
-            d = datetime.date.fromisoformat(ex)
-        except ValueError:
-            continue
-        if d < cutoff:
+        if not ex.startswith(ystr):
             continue
         per = r.get("PRETAX_BONUS_RMB")
         if per:
-            ttm += per / 10.0
-    return ttm
+            total += per / 10.0
+    return total
 
 
 NETEASE_FHSP = "http://quotes.money.163.com/service/fhsp.html"
 
 
-async def _dividend_ttm_netease(code: str) -> float:
+async def _dividend_year_netease(code: str, year: int) -> float:
     """网易分红送配 CSV 兜底（接口时好时坏，失败由上层吞掉）。"""
     num = code[2:] if code[:2] in ("sh", "sz") else code
     prefix = "0" if code.startswith("sh") else "1"
-    import datetime
     csv = await fetch_text(NETEASE_FHSP, params={"code": f"{prefix}{num}"},
                            encoding="gbk")
     lines = [ln for ln in csv.strip().split("\n") if ln.strip()]
@@ -168,24 +164,20 @@ async def _dividend_ttm_netease(code: str) -> float:
                   if "股利" in h or "每股派" in h), None)
     if ex_i is None or per_i is None:
         return 0.0
-    cutoff = datetime.date.today() - datetime.timedelta(days=365)
-    ttm = 0.0
+    ystr = str(year)
+    total = 0.0
     for ln in lines[1:]:
         parts = ln.split(",")
         if len(parts) <= max(ex_i, per_i):
             continue
         ex = parts[ex_i].strip()
-        try:
-            d = datetime.date.fromisoformat(ex)
-        except ValueError:
-            continue
-        if d < cutoff:
+        if not ex.startswith(ystr):
             continue
         try:
-            ttm += float(parts[per_i])
+            total += float(parts[per_i])
         except ValueError:
             continue
-    return ttm
+    return total
 
 
 async def get_kcfj_map(code: str, periods: int = 24) -> dict:
