@@ -60,9 +60,11 @@
 
     // ---- 二分求比例 s（px / 亿），保证所有列在版心内 ----
     function layout(s) {
+      // 常数 104：保证「期间费用」标签（画在条上方 40px、两行文字）
+      // 的基线 ≥ 18px，不被画布顶部裁剪（旧值 56 会使标签落到 y<0 而消失）
       const T0 = Math.max(
         T_TOP,
-        56 + (tax + expense) * s - GAP_CHAIN - cost * s - (gross - op) * s / 2
+        104 + (tax + expense) * s - GAP_CHAIN - cost * s - (gross - op) * s / 2
       );
       const yGC = T0 + GAP_CHAIN + cost * s + (gross * s) / 2;   // 主链中心
       const gb = T0 + GAP_CHAIN + cost * s + gross * s;          // 毛利底
@@ -234,13 +236,13 @@
       [L("毛利", 16, T.black, 700, 23), L(yi(byId.gross.value), 15, T.red, 700)],
       "start");
 
-    // 期间费用（条上方居中）
-    block(pos.expense.x + BW / 2, pos.expense.y - 40,
+    // 期间费用（条上方居中；钳制下限，防止被画布顶部裁剪）
+    block(pos.expense.x + BW / 2, Math.max(pos.expense.y - 40, 16),
       [L("期间费用", 15, T.black, 700, 20),
        L(yi(byId.expense.value), 15, T.green, 700)], "middle");
 
-    // 税金及附加（条右侧）
-    block(pos.tax.x + BW + 12, pos.tax.y + centerBase(2, pos.tax.h),
+    // 税金及附加（条右侧；同样钳制下限）
+    block(pos.tax.x + BW + 12, Math.max(pos.tax.y + centerBase(2, pos.tax.h), 16),
       [L("税金及附加", 14.5, T.black, 700, 20),
        L(yi(byId.tax.value), 14.5, T.blue, 700)], "start");
 
