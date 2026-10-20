@@ -118,7 +118,15 @@ body {
   background: var(--card); border: 1px solid var(--line); border-radius: 14px;
   padding: 18px; margin-bottom: 26px;
 }
-.sankey-card { overflow-x: auto; }
+.sankey-card { overflow-x: auto; position: relative; }
+.dl-btn {
+  position: absolute; top: 14px; right: 14px; z-index: 5;
+  display: inline-flex; align-items: center; gap: 5px;
+  border: 1px solid var(--line); background: #fff; color: var(--muted);
+  padding: 6px 12px; border-radius: 999px; cursor: pointer; font-size: 12.5px;
+  transition: all .15s;
+}
+.dl-btn:hover { color: var(--blue); border-color: var(--blue); background: var(--bluefill); }
 #sankey { width: 100%; min-width: 1000px; }
 #sankey svg { width: 100%; height: auto; display: block; }
 .src-note { margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--line);
@@ -139,18 +147,33 @@ body {
   padding: 14px 16px; display: flex; flex-direction: column; gap: 5px;
 }
 .metric-label { color: var(--muted); font-size: 13px; }
+.metric-value-row {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 8px;
+}
 .metric-value { font-size: 24px; font-weight: 800; }
 .metric-value .unit { font-size: 13px; font-weight: 500; color: var(--muted); margin-left: 3px; }
+.calc-btn {
+  flex: none; margin-top: 5px; width: 24px; height: 24px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid var(--line); border-radius: 7px; background: #fff;
+  color: var(--muted); cursor: pointer; transition: all .15s;
+}
+.calc-btn:hover { color: var(--blue); border-color: var(--blue); background: var(--bluefill); }
+.metric-card.calc-open .calc-btn { color: var(--blue); border-color: var(--blue); background: var(--bluefill); }
 .metric-yoy { font-size: 12px; }
 .metric-yoy.up { color: var(--red); }
 .metric-yoy.down { color: var(--green); }
-.metric-formula, .metric-process {
+.metric-formula, .metric-detail {
   font-size: 11px; color: #6b7280; line-height: 1.55;
   word-break: break-all; margin-top: 2px;
 }
-.metric-process { color: #9a7b0a; background: #fdf9ec; padding: 4px 7px;
-  border-radius: 6px; font-variant-numeric: tabular-nums; }
-.metric-formula .fld, .metric-process .fld {
+.metric-detail {
+  display: none; color: #9a7b0a; background: #fdf9ec; padding: 6px 8px;
+  border-radius: 6px; font-variant-numeric: tabular-nums;
+  border: 1px dashed #eadfb8;
+}
+.metric-card.calc-open .metric-detail { display: block; }
+.metric-formula .fld, .metric-detail .fld {
   display: inline-block; font-size: 10px; color: var(--muted);
   border: 1px solid var(--line); border-radius: 4px;
   padding: 0 4px; margin-right: 5px; vertical-align: 1px;

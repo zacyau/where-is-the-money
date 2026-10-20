@@ -304,7 +304,8 @@
     });
     const H2 = Math.max(H, Math.ceil(maxBottom + 14));
     container.innerHTML =
-      `<svg viewBox="0 0 ${W} ${H2}" xmlns="http://www.w3.org/2000/svg">` +
+      `<svg viewBox="0 0 ${W} ${H2}" xmlns="http://www.w3.org/2000/svg" ` +
+      `font-family="PingFang SC, Microsoft YaHei, Hiragino Sans GB, sans-serif">` +
       svg + `</svg>`;
 
     // 交互：hover 高亮同链
