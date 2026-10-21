@@ -2,6 +2,13 @@ from app.providers.base import fetch_json, fetch_text, ProviderError
 
 EM_URL = "https://datacenter-web.eastmoney.com/api/data/v1/get"
 
+# 港股 F10 财务报表（长格式：每科目一行，ITEM_NAME/AMOUNT/CURRENCY）
+# 现金流量表在东财无公开接口，暂缺
+HK_STATEMENTS = {
+    "income": "RPT_HKF10_FN_INCOME",
+    "balance": "RPT_HKF10_FN_BALANCE",
+}
+
 
 def _codes(code: str):
     num = code[2:] if code[:2] in ("sh", "sz", "hk") else code
@@ -192,3 +199,26 @@ async def get_kcfj_map(code: str, periods: int = 24) -> dict:
         if rd and v is not None:
             out[rd] = float(v)
     return out
+
+
+async def get_hk_statement(code: str, kind: str, size: int = 1000):
+    """东财港股三大报表：({科目名: {报告期YYYYMMDD: 值|None}}, 报表币种)。
+
+    港股报表科目为港式命名（营运收入/经营溢利/除税前溢利等），
+    由上层映射为与 A 股一致的内部科目名。现金流量表东财港股暂无公开接口。
+    """
+    num, _ = _codes(code)
+    report = HK_STATEMENTS[kind]
+    rows = await _em(report, "ALL", num, size=size)
+    out: dict = {}
+    currency = None
+    for r in rows:
+        name = (r.get("ITEM_NAME") or "").strip()
+        rd = (r.get("REPORT_DATE") or "")[:10].replace("-", "")
+        if not name or not rd:
+            continue
+        if currency is None and r.get("CURRENCY"):
+            currency = r["CURRENCY"]
+        amt = r.get("AMOUNT")
+        out.setdefault(name, {})[rd] = float(amt) if amt is not None else None
+    return out, currency

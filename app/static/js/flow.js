@@ -54,9 +54,10 @@
     const V = {};                     // 亿为单位
     flow.nodes.forEach((n) => (V[n.id] = Math.abs(n.value) / 1e8));
 
-    const cost = V.cost, gross = V.gross, op = V.op, expense = V.expense,
-      tax = V.tax, impair = V.impair, rev = V.rev, np = V.np,
-      taxfee = V.taxfee, parent = V.parent, minor = V.minor;
+    const cost = V.cost || 0, gross = V.gross || 0, op = V.op || 0,
+      expense = V.expense || 0,
+      tax = V.tax || 0, impair = V.impair || 0, rev = V.rev || 0, np = V.np || 0,
+      taxfee = V.taxfee || 0, parent = V.parent || 0, minor = V.minor || 0;
 
     // ---- 二分求比例 s（px / 亿），保证所有列在版心内 ----
     function layout(s) {
@@ -69,11 +70,14 @@
       const yGC = T0 + GAP_CHAIN + cost * s + (gross * s) / 2;   // 主链中心
       const gb = T0 + GAP_CHAIN + cost * s + gross * s;          // 毛利底
       const bottoms = [
-        gb + 31,                                                 // other 标签
-        yGC + (op * s) / 2 + 21 + impair * s + 46,               // impair 标签
         yGC + (np * s) / 2 + 18 + Math.max(taxfee * s, 5) + 46,  // taxfee 标签
-        yGC + (parent * s) / 2 + 18 + Math.max(minor * s, 5) + 46,
       ];
+      if (V.other != null)
+        bottoms.push(gb + 31);                                   // other 标签
+      if (V.impair != null)
+        bottoms.push(yGC + (op * s) / 2 + 21 + impair * s + 46); // impair 标签
+      if (V.minor != null)
+        bottoms.push(yGC + (parent * s) / 2 + 18 + Math.max(minor * s, 5) + 46);
       const segBottom = T0 + rev * s + (segs.length - 1) * GAP_SEG;
       return {
         ok: Math.max(...bottoms) <= T_BOT && segBottom <= T_BOT + 4,
@@ -106,15 +110,23 @@
     [["op", XLUT.op], ["tp", XLUT.tp], ["np", XLUT.np], ["parent", XLUT.parent]]
       .forEach(([id, x]) =>
         put(id, x, yGC - Math.max(h(V[id]), 12) / 2, Math.max(h(V[id]), 12)));
-    // 上方：期间费用、税金及附加
+    // 上方：期间费用、税金及附加（零值/缺失节点跳过，不再显示 0.00亿 占位）
     const opTop = pos.op.y;
-    put("tax", XLUT.tax, opTop - 34 - Math.max(h(tax), 5), Math.max(h(tax), 5));
-    put("expense", XLUT.expense, pos.tax.y - 12 - Math.max(h(expense), 5),
-      Math.max(h(expense), 5));
+    if (V.tax != null) {
+      put("tax", XLUT.tax, opTop - 34 - Math.max(h(tax), 5), Math.max(h(tax), 5));
+      put("expense", XLUT.expense, pos.tax.y - 12 - Math.max(h(expense), 5),
+        Math.max(h(expense), 5));
+    } else {
+      put("expense", XLUT.expense, opTop - 34 - Math.max(h(expense), 5),
+        Math.max(h(expense), 5));
+    }
     // 下方小节点
-    put("impair", XLUT.impair, pos.op.y + pos.op.h + 16, Math.max(h(impair), 5));
-    put("other", XLUT.other, pos.gross.y + pos.gross.h + 26, Math.max(h(V.other), 5));
-    put("nonbiz", XLUT.nonbiz, pos.tp.y + pos.tp.h + 18, Math.max(h(V.nonbiz), 5));
+    if (V.impair != null)
+      put("impair", XLUT.impair, pos.op.y + pos.op.h + 16, Math.max(h(impair), 5));
+    if (V.other != null)
+      put("other", XLUT.other, pos.gross.y + pos.gross.h + 26, Math.max(h(V.other), 5));
+    if (V.nonbiz != null)
+      put("nonbiz", XLUT.nonbiz, pos.tp.y + pos.tp.h + 18, Math.max(h(V.nonbiz), 5));
     put("taxfee", XLUT.taxfee, pos.np.y + pos.np.h + 18, Math.max(h(taxfee), 5));
     if (minor > 0.01)
       put("minor", XLUT.minor, pos.parent.y + pos.parent.h + 18, Math.max(h(minor), 5));
@@ -242,9 +254,10 @@
        L(yi(byId.expense.value), 15, T.green, 700)], "middle");
 
     // 税金及附加（条右侧；同样钳制下限）
-    block(pos.tax.x + BW + 12, Math.max(pos.tax.y + centerBase(2, pos.tax.h), 16),
-      [L("税金及附加", 14.5, T.black, 700, 20),
-       L(yi(byId.tax.value), 14.5, T.blue, 700)], "start");
+    if (pos.tax)
+      block(pos.tax.x + BW + 12, Math.max(pos.tax.y + centerBase(2, pos.tax.h), 16),
+        [L("税金及附加", 14.5, T.black, 700, 20),
+         L(yi(byId.tax.value), 14.5, T.blue, 700)], "start");
 
     // 营业利润（条右侧）
     block(pos.op.x + BW + 14, pos.op.y + centerBase(2, pos.op.h),
@@ -252,19 +265,22 @@
        L(yi(byId.op.value), 15, T.red, 700)], "start");
 
     // 减值及处置损失（条下方居中）
-    block(pos.impair.x + BW / 2, pos.impair.y + pos.impair.h + 22,
-      [L("减值及处置损失", 14.5, T.black, 700, 20),
-       L(yi(byId.impair.value), 15, T.green, 700)], "middle");
+    if (pos.impair)
+      block(pos.impair.x + BW / 2, pos.impair.y + pos.impair.h + 22,
+        [L("减值及处置损失", 14.5, T.black, 700, 20),
+         L(yi(byId.impair.value), 15, T.green, 700)], "middle");
 
     // 其他经营收益（条下方居中）
-    block(pos.other.x + BW / 2, pos.other.y + pos.other.h + 22,
-      [L("其他经营收益", 14.5, T.black, 700, 20),
-       L(yi(byId.other.value), 15, T.red, 700)], "middle");
+    if (pos.other)
+      block(pos.other.x + BW / 2, pos.other.y + pos.other.h + 22,
+        [L("其他经营收益", 14.5, T.black, 700, 20),
+         L(yi(byId.other.value), 15, T.red, 700)], "middle");
 
     // 营业外净收入（条下方居中）
-    block(pos.nonbiz.x + BW / 2, pos.nonbiz.y + pos.nonbiz.h + 22,
-      [L("营业外净收入", 14.5, T.black, 700, 20),
-       L(yi(byId.nonbiz.value), 15, T.red, 700)], "middle");
+    if (pos.nonbiz)
+      block(pos.nonbiz.x + BW / 2, pos.nonbiz.y + pos.nonbiz.h + 22,
+        [L("营业外净收入", 14.5, T.black, 700, 20),
+         L(yi(byId.nonbiz.value), 15, T.red, 700)], "middle");
 
     // 利润总额（条右侧）
     block(pos.tp.x + BW + 14, pos.tp.y + centerBase(2, pos.tp.h),

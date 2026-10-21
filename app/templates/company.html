@@ -5,7 +5,7 @@
   <div class="company-head">
     <a class="back-btn" href="/">&#8592; 返回查询</a>
     <h1>{{ view.name }}的钱去哪了</h1>
-    <div class="subtitle"><span id="period-label">{{ view.period.label }}</span> · 单位：亿元</div>
+    <div class="subtitle"><span id="period-label">{{ view.period.label }}</span> · 单位：亿元{% if view.currency %}（报表币种：{{ view.currency }}）{% endif %}</div>
     <div class="quote">现价 <b>{{ view.quote.price if view.quote.price is not none else '—' }}</b> · {{ view.code }}</div>
   </div>
 

@@ -86,6 +86,8 @@
     //   kind="sub"：成本类，恒负向，量值恒正，显示为「− 名称 量值亿」
     //   kind="add"：收益类，可正可负；负值把负号内联到数字上（如「营业利润 −125.13亿」），避免读作「减去正数」
     function eq(no, title, leftLabel, leftVal, terms, note) {
+      // 跳过零值项（如港股报表没有税金及附加/减值科目，避免显示「− 0.00亿」噪声）
+      terms = terms.filter((t) => Math.abs(t.v) >= 1);
       let right = "", sum = 0;
       terms.forEach((t, i) => {
         const neg = t.v < 0;

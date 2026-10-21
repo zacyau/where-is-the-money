@@ -42,6 +42,80 @@ class RawData:
     dividend_prev_year: Optional[float] = None          # 上一完整自然年每股分红(税前)
     dividend_prev_year_label: Optional[str] = None      # 上一完整自然年，如 "2025"
     kcfj_raw: dict = field(default_factory=dict)         # 日期 -> 扣非净利润
+    currency: Optional[str] = None                      # 报表币种（港股如 "人民币"/"港元"）
+
+
+# ---- 港股口径：东财 HK 报表科目名 → 内部（A 股风格）科目名 ----
+# 利润表：营运收入优先（含其他营业收入），缺失时退用营业额
+HK_INCOME_ALIAS = {
+    "营运收入": ["营业收入"],
+    "营业额": ["营业收入"],
+    "营运支出": ["营业成本"],
+    "销售及分销费用": ["销售费用"],
+    "行政开支": ["管理费用"],
+    "融资成本": ["财务费用"],
+    "经营溢利": ["营业利润"],
+    "除税前溢利": ["利润总额"],
+    "税项": ["所得税费用"],
+    "除税后溢利": ["净利润"],
+    "股东应占溢利": ["归属于母公司股东的净利润"],
+    "少数股东损益": ["少数股东损益"],
+    "研发费用": ["研发费用"],
+}
+
+HK_BALANCE_ALIAS = {
+    "总资产": ["资产总计"],
+    "总负债": ["负债合计"],
+    "股东权益": ["归属于母公司股东权益合计"],
+    "净资产": ["股东权益合计"],        # 总权益（含少数股东），归母优先
+    "存货": ["存货"],
+    "应收帐款": ["应收账款"],
+    "短期贷款": ["短期借款"],
+    "长期贷款": ["长期借款"],
+    "应付票据(非流动)": ["应付债券"],
+}
+
+
+def _hk_alias(raw: dict, alias: dict) -> dict:
+    """按别名把港股科目名映射为内部科目名（保留首个来源行）。"""
+    out: dict = {}
+    for src, dsts in alias.items():
+        row = raw.get(src)
+        if not row:
+            continue
+        for dst in dsts:
+            out.setdefault(dst, row)
+    # 租赁负债 = 流动 + 非流动两行合并
+    l1 = raw.get("融资租赁负债(流动)") or {}
+    l2 = raw.get("融资租赁负债(非流动)") or {}
+    merged = {d: (l1.get(d) or 0) + (l2.get(d) or 0) for d in set(l1) | set(l2)}
+    if merged:
+        out.setdefault("租赁负债", merged)
+    return out
+
+
+def _hk_nonbiz(out: dict) -> None:
+    """港股利润表无营业外科目：按「利润总额 − 营业利润」逐期注入营业外净额，
+    保证桑基图 营业利润 ± 营业外 = 利润总额 精确闭合。"""
+    op_row = out.get("营业利润") or {}
+    tp_row = out.get("利润总额") or {}
+    if not op_row or not tp_row:
+        return
+    inc_row: dict = {}
+    exp_row: dict = {}
+    for d, tp in tp_row.items():
+        op = op_row.get(d)
+        if tp is None or op is None:
+            continue
+        diff = tp - op
+        if diff >= 0:
+            inc_row[d] = diff
+        else:
+            exp_row[d] = -diff
+    if inc_row:
+        out.setdefault("营业外收入", inc_row)
+    if exp_row:
+        out.setdefault("营业外支出", exp_row)
 
 
 INCOME_MAP = {
@@ -167,18 +241,48 @@ def build_snapshot(rd: RawData, period_key: str) -> Optional[Snapshot]:
 
 
 async def collect(code: str) -> RawData:
+    is_hk = code.startswith("hk")
+    cur_year = datetime.date.today().year
+    prev_year = cur_year - 1
     quote = await cached(f"q:{code}", 60, lambda: tencent.get_quote(code))
-    inc_raw = await cached(f"inc:{code}", TTL_STATEMENT,
-                           lambda: sina.get_statement(code, "income"))
-    bal_raw = await cached(f"bal:{code}", TTL_STATEMENT,
-                           lambda: sina.get_statement(code, "balance"))
-    cf_raw = await cached(f"cf:{code}", TTL_STATEMENT,
-                          lambda: sina.get_statement(code, "cashflow"))
+    if is_hk:
+        # ---- 港股：东财 HK F10 报表（科目为港式命名，先映射再归一化）----
+        # 现金流量表/主营构成/分红募资东财港股无公开接口，暂缺
+        inc_raw_hk, currency = await cached(
+            f"inc:{code}", TTL_STATEMENT,
+            lambda: eastmoney.get_hk_statement(code, "income"))
+        bal_raw_hk, _ = await cached(
+            f"bal:{code}", TTL_STATEMENT,
+            lambda: eastmoney.get_hk_statement(code, "balance"))
+        inc_raw = _hk_alias(inc_raw_hk, HK_INCOME_ALIAS)
+        _hk_nonbiz(inc_raw)
+        bal_raw = _hk_alias(bal_raw_hk, HK_BALANCE_ALIAS)
+        cf_raw = {}
+        seg_map_raw = {}
+        div = ref = supp = kcfj = div_prev = None
+    else:
+        inc_raw = await cached(f"inc:{code}", TTL_STATEMENT,
+                               lambda: sina.get_statement(code, "income"))
+        bal_raw = await cached(f"bal:{code}", TTL_STATEMENT,
+                               lambda: sina.get_statement(code, "balance"))
+        cf_raw = await cached(f"cf:{code}", TTL_STATEMENT,
+                              lambda: sina.get_statement(code, "cashflow"))
+        currency = None
+        seg_map_raw = await cached(f"seg:{code}", TTL_SEGMENT,
+                                   lambda: eastmoney.get_mainop_map(code))
+        div = await cached(f"div:{code}", TTL_DIVIDEND,
+                           lambda: eastmoney.get_dividends_total(code))
+        ref = await cached(f"ref:{code}", TTL_DIVIDEND,
+                           lambda: eastmoney.get_refinance_total(code))
+        supp = await cached(f"in supp:{code}", TTL_STATEMENT,
+                            lambda: eastmoney.get_income_supp(code))
+        div_prev = await cached(f"divy:{code}:{prev_year}", TTL_DIVIDEND,
+                                lambda: eastmoney.get_dividend_year(code, prev_year))
+        kcfj = await cached(f"kcfj:{code}", TTL_STATEMENT,
+                            lambda: eastmoney.get_kcfj_map(code))
     inc_raw = _norm_rows(inc_raw)
     bal_raw = _norm_rows(bal_raw)
     cf_raw = _norm_rows(cf_raw)
-    seg_map_raw = await cached(f"seg:{code}", TTL_SEGMENT,
-                               lambda: eastmoney.get_mainop_map(code))
 
     # 报告期列表（来自利润表营收行，降序；缺失时取日期最多的科目行）
     rev_row = inc_raw.get("营业收入") or inc_raw.get("营业总收入") or {}
@@ -218,26 +322,13 @@ async def collect(code: str) -> RawData:
             prev_by_name[s["name"]] = s["income"]
         segments[d] = out
 
-    div = await cached(f"div:{code}", TTL_DIVIDEND,
-                       lambda: eastmoney.get_dividends_total(code))
-    ref = await cached(f"ref:{code}", TTL_DIVIDEND,
-                       lambda: eastmoney.get_refinance_total(code))
-    supp = await cached(f"in supp:{code}", TTL_STATEMENT,
-                        lambda: eastmoney.get_income_supp(code))
-    cur_year = datetime.date.today().year
-    prev_year = cur_year - 1
-    div_prev = await cached(f"divy:{code}:{prev_year}", TTL_DIVIDEND,
-                            lambda: eastmoney.get_dividend_year(code, prev_year))
-    kcfj = await cached(f"kcfj:{code}", TTL_STATEMENT,
-                        lambda: eastmoney.get_kcfj_map(code))
-
     # 东财减值明细兜底：新浪缺行或某期值为空/0 时逐期补齐
     # （东财日期为 YYYY-MM-DD，新浪利润表日期为 YYYYMMDD，需转换）
     merged_income = dict(inc_raw)
     for row_name, key in (("信用减值损失", "credit_impairment"),
                           ("资产减值损失", "asset_impairment")):
         row = dict(merged_income.get(row_name) or {})
-        for d, item in supp.items():
+        for d, item in (supp or {}).items():
             dk = d.replace("-", "")
             cur = row.get(dk)
             if cur in (None, 0) and key in item:
@@ -253,4 +344,5 @@ async def collect(code: str) -> RawData:
         dividend_prev_year=div_prev or 0.0,
         dividend_prev_year_label=str(prev_year),
         kcfj_raw=kcfj or {},
+        currency=currency,
     )

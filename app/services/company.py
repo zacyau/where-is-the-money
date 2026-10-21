@@ -57,6 +57,7 @@ async def get_company_view(code: str, period_key: str = None) -> dict:
         "code": rd.code,
         "name": rd.name,
         "quote": quote,
+        "currency": rd.currency,
         "period": {"key": cur_period.key, "label": cur_period.label,
                    "report_date": cur_period.report_date},
         "periods": [{"key": p.key, "label": p.label} for p in rd.periods[:12]],

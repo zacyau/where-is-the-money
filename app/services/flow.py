@@ -84,6 +84,11 @@ def build(snap: Snapshot, rd=None) -> FlowResult:
 
     segs = list(snap.segments)
     seg_total = sum(s.income for s in segs)
+    if not segs:
+        # 主营构成缺失（港股无此公开数据源）：收入端兜底为单一分部
+        segs = [type("S", (), {"name": "营业收入", "income": rev,
+                               "ratio": 1.0, "yoy": rev_yoy})()]
+        seg_total = rev
     main = sorted((s for s in segs if not _is_rest(s)),
                   key=lambda x: -x.income)
     rest_list = [s for s in segs if _is_rest(s)]
@@ -114,39 +119,49 @@ def build(snap: Snapshot, rd=None) -> FlowResult:
 
     nodes.append(FlowNode(id="expense", col=COL["expense"], label="期间费用",
                           value=period_exp, role="cost"))
-    nodes.append(FlowNode(id="tax", col=COL["expense"], label="税金及附加",
-                          value=tax, role="blue"))
-    nodes.append(FlowNode(id="impair", col=COL["expense"], label="减值及处置损失",
-                          value=impair, role="cost"))
-    nodes.append(FlowNode(id="other", col=COL["expense"], label="其他经营收益",
-                          value=other, role="red", signed=True))
     links.append(FlowLink(source="gross", target="expense", value=period_exp, role="cost"))
-    links.append(FlowLink(source="gross", target="tax", value=tax, role="blue"))
-    links.append(FlowLink(source="gross", target="impair", value=impair, role="cost"))
-    if other >= 0:
-        # 其他经营收益为收益：从毛利列下方流入营业利润
-        links.append(FlowLink(source="other", target="op", value=other,
-                              role="red", sign="+"))
-        links.append(FlowLink(source="gross", target="op", value=base_op, role="red"))
+    # 零值节点隐藏：报表中不存在的科目（如港股无税金及附加）不再显示 0.00亿 占位
+    eps = 1.0  # 单位：元，报表最小精度远高于此
+    if tax > eps:
+        nodes.append(FlowNode(id="tax", col=COL["expense"], label="税金及附加",
+                              value=tax, role="blue"))
+        links.append(FlowLink(source="gross", target="tax", value=tax, role="blue"))
+    if impair > eps:
+        nodes.append(FlowNode(id="impair", col=COL["expense"], label="减值及处置损失",
+                              value=impair, role="cost"))
+        links.append(FlowLink(source="gross", target="impair", value=impair, role="cost"))
+    if abs(other) > eps:
+        nodes.append(FlowNode(id="other", col=COL["expense"], label="其他经营收益",
+                              value=other, role="red", signed=True))
+        if other >= 0:
+            # 其他经营收益为收益：从毛利列下方流入营业利润
+            links.append(FlowLink(source="other", target="op", value=other,
+                                  role="red", sign="+"))
+            links.append(FlowLink(source="gross", target="op", value=base_op, role="red"))
+        else:
+            # 为损失：由毛利流出，作为终损节点
+            links.append(FlowLink(source="gross", target="other", value=abs(other),
+                                  role="red", sign="-"))
+            links.append(FlowLink(source="gross", target="op", value=op, role="red"))
     else:
-        # 为损失：由毛利流出，作为终损节点
-        links.append(FlowLink(source="gross", target="other", value=abs(other),
-                              role="red", sign="-"))
         links.append(FlowLink(source="gross", target="op", value=op, role="red"))
 
     nodes.append(FlowNode(id="op", col=COL["op"], label="营业利润", value=op, role="red"))
 
-    nodes.append(FlowNode(id="nonbiz", col=COL["nonbiz"], label="营业外净收入",
-                          value=nonbiz, role="red", signed=True))
     nodes.append(FlowNode(id="tp", col=COL["tp"], label="利润总额", value=tp, role="red"))
-    if nonbiz >= 0:
-        links.append(FlowLink(source="op", target="tp", value=op, role="red"))
-        links.append(FlowLink(source="nonbiz", target="tp", value=nonbiz,
-                              role="red", sign="+"))
+    if abs(nonbiz) > eps:
+        nodes.append(FlowNode(id="nonbiz", col=COL["nonbiz"], label="营业外净收入",
+                              value=nonbiz, role="red", signed=True))
+        if nonbiz >= 0:
+            links.append(FlowLink(source="op", target="tp", value=op, role="red"))
+            links.append(FlowLink(source="nonbiz", target="tp", value=nonbiz,
+                                  role="red", sign="+"))
+        else:
+            links.append(FlowLink(source="op", target="tp", value=tp, role="red"))
+            links.append(FlowLink(source="op", target="nonbiz", value=abs(nonbiz),
+                                  role="red", sign="-"))
     else:
-        links.append(FlowLink(source="op", target="tp", value=tp, role="red"))
-        links.append(FlowLink(source="op", target="nonbiz", value=abs(nonbiz),
-                              role="red", sign="-"))
+        links.append(FlowLink(source="op", target="tp", value=op, role="red"))
 
     nodes.append(FlowNode(id="taxfee", col=COL["taxfee"], label="所得税费用",
                           value=it, role="blue"))
@@ -155,11 +170,12 @@ def build(snap: Snapshot, rd=None) -> FlowResult:
     links.append(FlowLink(source="tp", target="taxfee", value=it, role="blue"))
     links.append(FlowLink(source="tp", target="np", value=tp - it, role="red"))
 
-    nodes.append(FlowNode(id="minor", col=COL["minor"], label="少数股东权益",
-                          value=minor, role="green"))
     nodes.append(FlowNode(id="parent", col=COL["parent"], label="归母净利润",
                           value=parent, role="red"))
-    links.append(FlowLink(source="np", target="minor", value=minor, role="cost"))
+    if minor > eps:
+        nodes.append(FlowNode(id="minor", col=COL["minor"], label="少数股东权益",
+                              value=minor, role="green"))
+        links.append(FlowLink(source="np", target="minor", value=minor, role="cost"))
     links.append(FlowLink(source="np", target="parent", value=parent, role="red"))
 
     scale = max(rev, op, tp, np_, 1.0)

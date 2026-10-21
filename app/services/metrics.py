@@ -145,17 +145,18 @@ def build(rd: RawData, period_key: str):
                 "中报/季报净利润为累计值会低估，故取滚动12个月",
         source="新浪财经", category="盈利能力")
 
-    oc = snap.cashflow.operating_net
-    npf = snap.income.net_profit
-    add("net_cash", "净现比",
-        (oc / npf * 100) if npf else None, "%",
-        lambda s: (s.cashflow.operating_net / s.income.net_profit * 100)
-        if s.income.net_profit else None,
-        formula="经营活动现金流净额 ÷ 净利润 × 100",
-        process=(f"{_amt(oc)} ÷ {_amt(npf)} × 100 = {oc / npf * 100:.1f}%")
-        if npf else None,
-        caliber="经营活动现金流净额 / 净利润 ×100（≥100% 说明利润含金量足）",
-        category="现金流含金量")
+    if _row_present(rd.cashflow_raw, CASHFLOW_MAP["operating_net"]):
+        oc = snap.cashflow.operating_net
+        npf = snap.income.net_profit
+        add("net_cash", "净现比",
+            (oc / npf * 100) if npf else None, "%",
+            lambda s: (s.cashflow.operating_net / s.income.net_profit * 100)
+            if s.income.net_profit else None,
+            formula="经营活动现金流净额 ÷ 净利润 × 100",
+            process=(f"{_amt(oc)} ÷ {_amt(npf)} × 100 = {oc / npf * 100:.1f}%")
+            if npf else None,
+            caliber="经营活动现金流净额 / 净利润 ×100（≥100% 说明利润含金量足）",
+            category="现金流含金量")
 
     if _row_present(rd.cashflow_raw, CASHFLOW_MAP["sales_cash"]):
         sc = snap.cashflow.sales_cash
@@ -172,29 +173,40 @@ def build(rd: RawData, period_key: str):
     # 分红募资比（累计口径）
     div = rd.dividends_total
     ref = rd.refinance_total
-    if ref and ref > 0:
-        dr_val = div / ref
-        dr_formula = "累计现金分红 ÷ 累计增发募资"
-        dr_process = f"{_amt(div)} ÷ {_amt(ref)} = {dr_val:.2f}倍"
-        dr_cal = "累计现金分红 / 累计增发募资（东财口径，IPO 及配股未计入）"
+    is_hk = rd.code.startswith("hk")
+    if is_hk and not div and not ref:
+        # 港股分红/募资明细东财无公开接口，数据源暂缺
+        out.append(MetricResult(
+            key="dividend_raise", label="分红募资比", value=None, unit="倍",
+            yoy=None, yoy_kind="pct", history=None, history_labels=None,
+            caliber="港股分红与募资明细数据源暂缺，暂无法计算",
+            formula="累计现金分红 ÷ 累计增发募资", process=None,
+            category="股东回报", source="东方财富",
+        ))
     else:
-        cum_np = 0.0
-        for p in rd.periods:
-            if p.month == 12:
-                s = build_snapshot(rd, p.key)
-                if s:
-                    cum_np += s.income.parent_net_profit
-        dr_val = (div / cum_np) if cum_np else None
-        dr_formula = "累计现金分红 ÷ 累计归母净利润（募资明细缺失降级）"
-        dr_process = (f"{_amt(div)} ÷ {_amt(cum_np)} = {dr_val:.2f}倍"
-                      if dr_val is not None else None)
-        dr_cal = "募资明细缺失，已降级为 累计分红 / 累计归母净利润"
-    out.append(MetricResult(
-        key="dividend_raise", label="分红募资比", value=dr_val, unit="倍",
-        yoy=None, yoy_kind="pct", history=None, history_labels=None,
-        caliber=dr_cal, formula=dr_formula, process=dr_process,
-        category="股东回报", source="东方财富",
-    ))
+        if ref and ref > 0:
+            dr_val = div / ref
+            dr_formula = "累计现金分红 ÷ 累计增发募资"
+            dr_process = f"{_amt(div)} ÷ {_amt(ref)} = {dr_val:.2f}倍"
+            dr_cal = "累计现金分红 / 累计增发募资（东财口径，IPO 及配股未计入）"
+        else:
+            cum_np = 0.0
+            for p in rd.periods:
+                if p.month == 12:
+                    s = build_snapshot(rd, p.key)
+                    if s:
+                        cum_np += s.income.parent_net_profit
+            dr_val = (div / cum_np) if cum_np else None
+            dr_formula = "累计现金分红 ÷ 累计归母净利润（募资明细缺失降级）"
+            dr_process = (f"{_amt(div)} ÷ {_amt(cum_np)} = {dr_val:.2f}倍"
+                          if dr_val is not None else None)
+            dr_cal = "募资明细缺失，已降级为 累计分红 / 累计归母净利润"
+        out.append(MetricResult(
+            key="dividend_raise", label="分红募资比", value=dr_val, unit="倍",
+            yoy=None, yoy_kind="pct", history=None, history_labels=None,
+            caliber=dr_cal, formula=dr_formula, process=dr_process,
+            category="股东回报", source="东方财富",
+        ))
 
     # 股息率 = 上一个完整自然年每股分红(税前) / 现价
     # 多次分红下 TTM 会跨年混算、今年至今又不完整，故取「上一个完整自然年」全部分红。
@@ -210,7 +222,8 @@ def build(rd: RawData, period_key: str):
         dy_val = None
         dy_formula = "上一年度每股分红(税前) ÷ 现价 × 100"
         dy_process = None
-        dy_cal = f"{dy_label}年度无除息分红记录或行情缺失，暂无法计算"
+        dy_cal = ("港股分红数据源暂缺，暂无法计算" if is_hk
+                  else f"{dy_label}年度无除息分红记录或行情缺失，暂无法计算")
     out.append(MetricResult(
         key="dividend_yield", label="股息率", value=dy_val, unit="%",
         yoy=None, yoy_kind="pct", history=None, history_labels=None,
@@ -336,30 +349,32 @@ def build(rd: RawData, period_key: str):
             return None
         return (cur - prev) / abs(prev) * 100
 
-    kg_val = kcfj_growth(period_key)
-    kg_missing = kg_val is None and not kcfj_by_key
-    kg_h, kg_l = [], []
-    for p in reversed(rd.periods[:8]):
-        kg_h.append(kcfj_growth(p.key))
-        kg_l.append(p.label)
-    kcur = kcfj_by_key.get(period_key)
-    kprev = kcfj_by_key.get(_prev_year_key(period_key) or "")
-    if kcur is not None and kprev not in (None, 0):
-        kg_process = (f"({_amt(kcur)} − {_amt(kprev)}) ÷ |{_amt(kprev)}| × 100 = "
-                      f"{kg_val:.1f}%")
-    else:
-        kg_process = None
-    if kg_missing:
-        kg_cal = "东财主要指标未返回扣非数据，暂无法计算"
-    else:
-        kg_cal = "扣除非经常性损益后的净利润，累计口径同比"
-    out.append(MetricResult(
-        key="kcfj_growth", label="扣非净利润增速", value=kg_val, unit="%",
-        yoy=None, yoy_kind="pct", history=kg_h, history_labels=kg_l,
-        caliber=kg_cal,
-        formula="（本期扣非净利润 − 去年同期扣非净利润）÷ |去年同期| × 100",
-        process=kg_process, category="成长性", source="东方财富",
-    ))
+    if kcfj_by_key or not is_hk:
+        # 港股无扣非数据源时整卡隐藏；A 股缺数据仍显示口径说明
+        kg_val = kcfj_growth(period_key)
+        kg_missing = kg_val is None and not kcfj_by_key
+        kg_h, kg_l = [], []
+        for p in reversed(rd.periods[:8]):
+            kg_h.append(kcfj_growth(p.key))
+            kg_l.append(p.label)
+        kcur = kcfj_by_key.get(period_key)
+        kprev = kcfj_by_key.get(_prev_year_key(period_key) or "")
+        if kcur is not None and kprev not in (None, 0):
+            kg_process = (f"({_amt(kcur)} − {_amt(kprev)}) ÷ |{_amt(kprev)}| × 100 = "
+                          f"{kg_val:.1f}%")
+        else:
+            kg_process = None
+        if kg_missing:
+            kg_cal = "东财主要指标未返回扣非数据，暂无法计算"
+        else:
+            kg_cal = "扣除非经常性损益后的净利润，累计口径同比"
+        out.append(MetricResult(
+            key="kcfj_growth", label="扣非净利润增速", value=kg_val, unit="%",
+            yoy=None, yoy_kind="pct", history=kg_h, history_labels=kg_l,
+            caliber=kg_cal,
+            formula="（本期扣非净利润 − 去年同期扣非净利润）÷ |去年同期| × 100",
+            process=kg_process, category="成长性", source="东方财富",
+        ))
 
     # 按分类排序（稳定排序，保持各类内原有顺序）
     order = {c: i for i, c in enumerate(METRIC_CATEGORY_ORDER)}
