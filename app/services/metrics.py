@@ -3,7 +3,19 @@ from app.models.schemas import (
     MetricResult,
     Snapshot,
 )
-from app.services.statements import RawData, build_snapshot
+from app.services.statements import (
+    BALANCE_MAP, CASHFLOW_MAP, RawData, build_snapshot,
+)
+
+
+def _row_present(raw: dict, names: list) -> bool:
+    """科目行是否存在于原始报表（get_statement 仅保留至少一期有值的行）。
+
+    银行/保险等无「存货」「应收账款」「销售商品收到的现金」等科目，
+    据此隐藏不适用指标，避免显示误导性的 0；而科目存在、值恰为 0 的
+    公司（如部分消费品公司）仍正常显示 0.00。
+    """
+    return any(n in raw for n in names)
 
 
 def _prev_year_key(period_key: str):
@@ -66,8 +78,9 @@ def build(rd: RawData, period_key: str):
         ))
 
     rev = snap.income.revenue
-    # 银行/保险口径（有「业务及管理费用」科目）：收现比、存货/应收周转、
-    # 应收账款占比、带息债务占比等指标不适用（科目为 0 或口径完全不同），隐藏
+    # 银行/保险口径（有「业务及管理费用」科目）：带息债务占比不适用
+    # （银行负债以储户存款为主，非借款口径）；其余不适用指标由
+    # _row_present 按底层科目是否存在判断
     is_bank = snap.income.biz_admin_expense > 0
     ta = snap.balance.total_assets
     idays = snap.period.days
@@ -144,7 +157,7 @@ def build(rd: RawData, period_key: str):
         caliber="经营活动现金流净额 / 净利润 ×100（≥100% 说明利润含金量足）",
         category="现金流含金量")
 
-    if not is_bank:
+    if _row_present(rd.cashflow_raw, CASHFLOW_MAP["sales_cash"]):
         sc = snap.cashflow.sales_cash
         add("cash_receive", "收现比",
             (sc / rev * 100) if rev else None, "%",
@@ -205,18 +218,8 @@ def build(rd: RawData, period_key: str):
         category="股东回报", source="东方财富/腾讯",
     ))
 
+    # 带息债务占比：银行口径不适用（银行负债以储户存款为主，非带息借款）
     if not is_bank:
-        ar = snap.balance.accounts_receivable
-        add("ar_ratio", "应收账款占比",
-            (ar / ta * 100) if ta else None, "%",
-            lambda s: (s.balance.accounts_receivable / s.balance.total_assets * 100)
-            if s.balance.total_assets else None,
-            formula="应收账款 ÷ 总资产 × 100",
-            process=(f"{_amt(ar)} ÷ {_amt(ta)} × 100 = {ar / ta:.1f}%")
-            if ta else None,
-            caliber="应收账款 / 总资产 ×100（占比过高警惕收入质量）",
-            source="新浪财经", category="资产安全性")
-
         def ibd_fn(s):
             debt = (s.balance.short_loan + s.balance.noncurrent_liab_1y +
                     s.balance.long_loan + s.balance.bond_payable + s.balance.lease_liab)
@@ -234,24 +237,18 @@ def build(rd: RawData, period_key: str):
             caliber="五项带息债务合计 / 总资产 ×100（衡量财务杠杆压力）",
             source="新浪财经", category="资产安全性")
 
-        def inv_fn(s):
-            if not s.income.cost:
-                return None
-            begin = s.prior_balance.inventory if s.prior_balance else s.balance.inventory
-            avg = (s.balance.inventory + begin) / 2
-            return avg / s.income.cost * s.period.days
-
-        icost = snap.income.cost
-        ibegin = (snap.prior_balance.inventory
-                  if snap.prior_balance else snap.balance.inventory)
-        iavg = (snap.balance.inventory + ibegin) / 2
-        add("inv_days", "存货周转天数", inv_fn(snap), "天", inv_fn,
-            formula="平均存货 ÷ 营业成本 × 报告期天数",
-            process=(f"[({_amt(snap.balance.inventory)} + {_amt(ibegin)}) ÷ 2] ÷ "
-                     f"{_amt(icost)} × {idays} 天 = {iavg / icost * idays:.1f} 天")
-            if icost else None,
-            caliber="（期末存货+期初存货)/2 ÷ 营业成本 × 报告期天数",
-            source="新浪财经", category="营运效率")
+    # 应收/存货类指标：底层科目存在才显示（银行/保险等无这些科目则不适用）
+    ar = snap.balance.accounts_receivable
+    if _row_present(rd.balance_raw, BALANCE_MAP["accounts_receivable"]):
+        add("ar_ratio", "应收账款占比",
+            (ar / ta * 100) if ta else None, "%",
+            lambda s: (s.balance.accounts_receivable / s.balance.total_assets * 100)
+            if s.balance.total_assets else None,
+            formula="应收账款 ÷ 总资产 × 100",
+            process=(f"{_amt(ar)} ÷ {_amt(ta)} × 100 = {ar / ta:.1f}%")
+            if ta else None,
+            caliber="应收账款 / 总资产 ×100（占比过高警惕收入质量）",
+            source="新浪财经", category="资产安全性")
 
         def ar_fn(s):
             if not s.income.revenue:
@@ -270,6 +267,26 @@ def build(rd: RawData, period_key: str):
                      f"{idays} 天 = {aravg / rev * idays:.1f} 天")
             if rev else None,
             caliber="（期末应收+期初应收)/2 ÷ 营业收入 × 报告期天数",
+            source="新浪财经", category="营运效率")
+
+    if _row_present(rd.balance_raw, BALANCE_MAP["inventory"]):
+        def inv_fn(s):
+            if not s.income.cost:
+                return None
+            begin = s.prior_balance.inventory if s.prior_balance else s.balance.inventory
+            avg = (s.balance.inventory + begin) / 2
+            return avg / s.income.cost * s.period.days
+
+        icost = snap.income.cost
+        ibegin = (snap.prior_balance.inventory
+                  if snap.prior_balance else snap.balance.inventory)
+        iavg = (snap.balance.inventory + ibegin) / 2
+        add("inv_days", "存货周转天数", inv_fn(snap), "天", inv_fn,
+            formula="平均存货 ÷ 营业成本 × 报告期天数",
+            process=(f"[({_amt(snap.balance.inventory)} + {_amt(ibegin)}) ÷ 2] ÷ "
+                     f"{_amt(icost)} × {idays} 天 = {iavg / icost * idays:.1f} 天")
+            if icost else None,
+            caliber="（期末存货+期初存货)/2 ÷ 营业成本 × 报告期天数",
             source="新浪财经", category="营运效率")
 
     icost2 = snap.income.cost
