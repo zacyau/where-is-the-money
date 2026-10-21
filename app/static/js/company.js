@@ -38,13 +38,27 @@
     if (!svgEl) return;
     const vb = (svgEl.getAttribute("viewBox") || "0 0 1180 640")
       .split(/[\s,]+/).map(Number);
-    const xml = new XMLSerializer().serializeToString(svgEl);
+    const HDR = 40;                                  // 顶部标题带高度
+    const esc = (s) => String(s).replace(/[&<>"]/g, (c) =>
+      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+    const title = esc(
+      (view.name || view.code) +
+      (view.period && view.period.label ? " · " + view.period.label : "")
+    );
+    // 在 SVG 顶部注入股票名称（含报告期）标题，内容整体下移，页内显示不变
+    const xml =
+      `<svg xmlns="http://www.w3.org/2000/svg" ` +
+      `viewBox="0 0 ${vb[2]} ${vb[3] + HDR}" ` +
+      `font-family="PingFang SC, Microsoft YaHei, Hiragino Sans GB, sans-serif">` +
+      `<text x="26" y="28" font-size="20" font-weight="700" fill="#1c1c1c">${title}</text>` +
+      `<g transform="translate(0, ${HDR})">${svgEl.innerHTML}</g>` +
+      `</svg>`;
     const img = new Image();
     img.onload = () => {
       const scale = 2;                       // 2 倍分辨率，文字更清晰
       const canvas = document.createElement("canvas");
       canvas.width = vb[2] * scale;
-      canvas.height = vb[3] * scale;
+      canvas.height = (vb[3] + HDR) * scale;
       const ctx = canvas.getContext("2d");
       ctx.fillStyle = "#ffffff";             // SVG 透明背景 → 白底
       ctx.fillRect(0, 0, canvas.width, canvas.height);
