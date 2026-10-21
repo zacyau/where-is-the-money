@@ -43,6 +43,7 @@ class IncomeStmt:
     net_profit: float
     parent_net_profit: float
     minority_interest: float
+    biz_admin_expense: float = 0.0      # 业务及管理费用（银行/保险口径的期间费用主体）
 
 
 @dataclass

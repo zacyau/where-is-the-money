@@ -66,6 +66,11 @@ def build(rd: RawData, period_key: str):
         ))
 
     rev = snap.income.revenue
+    # 银行/保险口径（有「业务及管理费用」科目）：收现比、存货/应收周转、
+    # 应收账款占比、带息债务占比等指标不适用（科目为 0 或口径完全不同），隐藏
+    is_bank = snap.income.biz_admin_expense > 0
+    ta = snap.balance.total_assets
+    idays = snap.period.days
 
     def _ttm_detail(pk, income_field, balance_field):
         """TTM 口径明细：返回 (百分比, TTM净利过程文本, 平均分母过程文本)。
@@ -139,16 +144,17 @@ def build(rd: RawData, period_key: str):
         caliber="经营活动现金流净额 / 净利润 ×100（≥100% 说明利润含金量足）",
         category="现金流含金量")
 
-    sc = snap.cashflow.sales_cash
-    add("cash_receive", "收现比",
-        (sc / rev * 100) if rev else None, "%",
-        lambda s: (s.cashflow.sales_cash / s.income.revenue * 100)
-        if s.income.revenue else None,
-        formula="销售商品收到的现金 ÷ 营业收入 × 100",
-        process=(f"{_amt(sc)} ÷ {_amt(rev)} × 100 = {sc / rev * 100:.1f}%")
-        if rev else None,
-        caliber="销售商品收到现金 / 营业收入 ×100（≥100% 说明收入含金量足）",
-        category="现金流含金量")
+    if not is_bank:
+        sc = snap.cashflow.sales_cash
+        add("cash_receive", "收现比",
+            (sc / rev * 100) if rev else None, "%",
+            lambda s: (s.cashflow.sales_cash / s.income.revenue * 100)
+            if s.income.revenue else None,
+            formula="销售商品收到的现金 ÷ 营业收入 × 100",
+            process=(f"{_amt(sc)} ÷ {_amt(rev)} × 100 = {sc / rev * 100:.1f}%")
+            if rev else None,
+            caliber="销售商品收到现金 / 营业收入 ×100（≥100% 说明收入含金量足）",
+            category="现金流含金量")
 
     # 分红募资比（累计口径）
     div = rd.dividends_total
@@ -199,73 +205,72 @@ def build(rd: RawData, period_key: str):
         category="股东回报", source="东方财富/腾讯",
     ))
 
-    ar = snap.balance.accounts_receivable
-    ta = snap.balance.total_assets
-    add("ar_ratio", "应收账款占比",
-        (ar / ta * 100) if ta else None, "%",
-        lambda s: (s.balance.accounts_receivable / s.balance.total_assets * 100)
-        if s.balance.total_assets else None,
-        formula="应收账款 ÷ 总资产 × 100",
-        process=(f"{_amt(ar)} ÷ {_amt(ta)} × 100 = {ar / ta:.1f}%")
-        if ta else None,
-        caliber="应收账款 / 总资产 ×100（占比过高警惕收入质量）",
-        source="新浪财经", category="资产安全性")
+    if not is_bank:
+        ar = snap.balance.accounts_receivable
+        add("ar_ratio", "应收账款占比",
+            (ar / ta * 100) if ta else None, "%",
+            lambda s: (s.balance.accounts_receivable / s.balance.total_assets * 100)
+            if s.balance.total_assets else None,
+            formula="应收账款 ÷ 总资产 × 100",
+            process=(f"{_amt(ar)} ÷ {_amt(ta)} × 100 = {ar / ta:.1f}%")
+            if ta else None,
+            caliber="应收账款 / 总资产 ×100（占比过高警惕收入质量）",
+            source="新浪财经", category="资产安全性")
 
-    def ibd_fn(s):
-        debt = (s.balance.short_loan + s.balance.noncurrent_liab_1y +
-                s.balance.long_loan + s.balance.bond_payable + s.balance.lease_liab)
-        return debt / s.balance.total_assets * 100 if s.balance.total_assets else None
+        def ibd_fn(s):
+            debt = (s.balance.short_loan + s.balance.noncurrent_liab_1y +
+                    s.balance.long_loan + s.balance.bond_payable + s.balance.lease_liab)
+            return debt / s.balance.total_assets * 100 if s.balance.total_assets else None
 
-    b = snap.balance
-    ibd_debt = (b.short_loan + b.noncurrent_liab_1y + b.long_loan +
-                b.bond_payable + b.lease_liab)
-    add("ibd_ratio", "带息债务占比", ibd_fn(snap), "%", ibd_fn,
-        formula="（短期借款 + 一年内到期非流动负债 + 长期借款 + 应付债券 + 租赁负债）÷ 总资产 × 100",
-        process=(f"({_amt(b.short_loan)} + {_amt(b.noncurrent_liab_1y)} + "
-                 f"{_amt(b.long_loan)} + {_amt(b.bond_payable)} + "
-                 f"{_amt(b.lease_liab)}) ÷ {_amt(ta)} × 100 = {ibd_debt / ta * 100:.1f}%")
-        if ta else None,
-        caliber="五项带息债务合计 / 总资产 ×100（衡量财务杠杆压力）",
-        source="新浪财经", category="资产安全性")
+        b = snap.balance
+        ibd_debt = (b.short_loan + b.noncurrent_liab_1y + b.long_loan +
+                    b.bond_payable + b.lease_liab)
+        add("ibd_ratio", "带息债务占比", ibd_fn(snap), "%", ibd_fn,
+            formula="（短期借款 + 一年内到期非流动负债 + 长期借款 + 应付债券 + 租赁负债）÷ 总资产 × 100",
+            process=(f"({_amt(b.short_loan)} + {_amt(b.noncurrent_liab_1y)} + "
+                     f"{_amt(b.long_loan)} + {_amt(b.bond_payable)} + "
+                     f"{_amt(b.lease_liab)}) ÷ {_amt(ta)} × 100 = {ibd_debt / ta * 100:.1f}%")
+            if ta else None,
+            caliber="五项带息债务合计 / 总资产 ×100（衡量财务杠杆压力）",
+            source="新浪财经", category="资产安全性")
 
-    def inv_fn(s):
-        if not s.income.cost:
-            return None
-        begin = s.prior_balance.inventory if s.prior_balance else s.balance.inventory
-        avg = (s.balance.inventory + begin) / 2
-        return avg / s.income.cost * s.period.days
+        def inv_fn(s):
+            if not s.income.cost:
+                return None
+            begin = s.prior_balance.inventory if s.prior_balance else s.balance.inventory
+            avg = (s.balance.inventory + begin) / 2
+            return avg / s.income.cost * s.period.days
 
-    icost = snap.income.cost
-    ibegin = (snap.prior_balance.inventory
-              if snap.prior_balance else snap.balance.inventory)
-    iavg = (snap.balance.inventory + ibegin) / 2
-    idays = snap.period.days
-    add("inv_days", "存货周转天数", inv_fn(snap), "天", inv_fn,
-        formula="平均存货 ÷ 营业成本 × 报告期天数",
-        process=(f"[({_amt(snap.balance.inventory)} + {_amt(ibegin)}) ÷ 2] ÷ "
-                 f"{_amt(icost)} × {idays} 天 = {iavg / icost * idays:.1f} 天")
-        if icost else None,
-        caliber="（期末存货+期初存货)/2 ÷ 营业成本 × 报告期天数",
-        source="新浪财经", category="营运效率")
+        icost = snap.income.cost
+        ibegin = (snap.prior_balance.inventory
+                  if snap.prior_balance else snap.balance.inventory)
+        iavg = (snap.balance.inventory + ibegin) / 2
+        add("inv_days", "存货周转天数", inv_fn(snap), "天", inv_fn,
+            formula="平均存货 ÷ 营业成本 × 报告期天数",
+            process=(f"[({_amt(snap.balance.inventory)} + {_amt(ibegin)}) ÷ 2] ÷ "
+                     f"{_amt(icost)} × {idays} 天 = {iavg / icost * idays:.1f} 天")
+            if icost else None,
+            caliber="（期末存货+期初存货)/2 ÷ 营业成本 × 报告期天数",
+            source="新浪财经", category="营运效率")
 
-    def ar_fn(s):
-        if not s.income.revenue:
-            return None
-        begin = (s.prior_balance.accounts_receivable
-                 if s.prior_balance else s.balance.accounts_receivable)
-        avg = (s.balance.accounts_receivable + begin) / 2
-        return avg / s.income.revenue * s.period.days
+        def ar_fn(s):
+            if not s.income.revenue:
+                return None
+            begin = (s.prior_balance.accounts_receivable
+                     if s.prior_balance else s.balance.accounts_receivable)
+            avg = (s.balance.accounts_receivable + begin) / 2
+            return avg / s.income.revenue * s.period.days
 
-    arbegin = (snap.prior_balance.accounts_receivable
-               if snap.prior_balance else snap.balance.accounts_receivable)
-    aravg = (snap.balance.accounts_receivable + arbegin) / 2
-    add("ar_days", "应收账款周转天数", ar_fn(snap), "天", ar_fn,
-        formula="平均应收账款 ÷ 营业收入 × 报告期天数",
-        process=(f"[({_amt(ar)} + {_amt(arbegin)}) ÷ 2] ÷ {_amt(rev)} × "
-                 f"{idays} 天 = {aravg / rev * idays:.1f} 天")
-        if rev else None,
-        caliber="（期末应收+期初应收)/2 ÷ 营业收入 × 报告期天数",
-        source="新浪财经", category="营运效率")
+        arbegin = (snap.prior_balance.accounts_receivable
+                   if snap.prior_balance else snap.balance.accounts_receivable)
+        aravg = (snap.balance.accounts_receivable + arbegin) / 2
+        add("ar_days", "应收账款周转天数", ar_fn(snap), "天", ar_fn,
+            formula="平均应收账款 ÷ 营业收入 × 报告期天数",
+            process=(f"[({_amt(ar)} + {_amt(arbegin)}) ÷ 2] ÷ {_amt(rev)} × "
+                     f"{idays} 天 = {aravg / rev * idays:.1f} 天")
+            if rev else None,
+            caliber="（期末应收+期初应收)/2 ÷ 营业收入 × 报告期天数",
+            source="新浪财经", category="营运效率")
 
     icost2 = snap.income.cost
     add("gross_margin", "毛利率",

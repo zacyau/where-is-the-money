@@ -28,12 +28,27 @@ def _yoy(cur, prev):
 def build(snap: Snapshot, rd=None) -> FlowResult:
     inc, bal, cf = snap.income, snap.balance, snap.cashflow
     rev = inc.revenue
-    cost = inc.cost
+    if inc.biz_admin_expense:
+        # ---- 银行/保险口径 ----
+        # 新浪银行利润表无「营业成本」科目，「营业支出」打包了税金及附加、
+        # 业务及管理费用、研发费用及信用减值损失等，需逐项拆出才能正确分解：
+        #   营业成本 = 0；期间费用 = 业务及管理费 + 研发费用；
+        #   减值 = 营业支出残差（主要为信用减值损失，单行科目新浪未列示）
+        cost = 0.0
+        period_exp = inc.biz_admin_expense + inc.rnd_expense
+        tax = inc.tax_surcharge
+        residual = inc.cost - tax - period_exp
+        if residual > 0:
+            impair = residual
+        else:  # 数据异常时退回减值科目值
+            impair = inc.credit_impairment + inc.asset_impairment
+    else:
+        cost = inc.cost
+        period_exp = (inc.selling_expense + inc.admin_expense +
+                      inc.rnd_expense + inc.finance_expense)
+        tax = inc.tax_surcharge
+        impair = inc.credit_impairment + inc.asset_impairment   # 损失（正值）
     gross = rev - cost
-    period_exp = (inc.selling_expense + inc.admin_expense +
-                  inc.rnd_expense + inc.finance_expense)
-    tax = inc.tax_surcharge
-    impair = inc.credit_impairment + inc.asset_impairment   # 损失（正值）
     op = inc.operating_profit
     # 其他经营收益作为平衡项：营业利润 = 毛利 - 费用 - 税金 - 减值 + 其他收益
     base_op = gross - period_exp - tax - impair

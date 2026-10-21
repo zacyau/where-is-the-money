@@ -119,14 +119,38 @@ body {
   padding: 18px; margin-bottom: 26px;
 }
 .sankey-card { overflow-x: auto; position: relative; }
-.dl-btn {
+.sankey-tools {
   position: absolute; top: 14px; right: 14px; z-index: 5;
+  display: flex; gap: 8px;
+}
+.tool-btn {
   display: inline-flex; align-items: center; gap: 5px;
   border: 1px solid var(--line); background: #fff; color: var(--muted);
   padding: 6px 12px; border-radius: 999px; cursor: pointer; font-size: 12.5px;
   transition: all .15s;
 }
-.dl-btn:hover { color: var(--blue); border-color: var(--blue); background: var(--bluefill); }
+.tool-btn:hover { color: var(--blue); border-color: var(--blue); background: var(--bluefill); }
+.tool-btn.active { color: var(--blue); border-color: var(--blue); background: var(--bluefill); }
+
+.derive-panel {
+  margin-top: 16px; padding: 16px 20px; background: #fcfcfd;
+  border: 1px dashed var(--line); border-radius: 10px;
+}
+.derive-head { font-size: 12.5px; color: var(--muted); margin-bottom: 14px; }
+.derive-step { margin-bottom: 13px; }
+.derive-step:last-child { margin-bottom: 2px; }
+.derive-title { font-size: 13.5px; font-weight: 700; margin-bottom: 3px; }
+.derive-title .no {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 17px; height: 17px; margin-right: 7px; border-radius: 50%;
+  background: var(--ink); color: #fff; font-size: 11px; font-weight: 600;
+  vertical-align: -2px;
+}
+.derive-eq { font-size: 13px; line-height: 1.75; word-break: break-all;
+  font-variant-numeric: tabular-nums; padding-left: 24px; }
+.derive-eq b { font-weight: 600; }
+.derive-diff { color: #b54708; font-size: 12px; }
+.derive-note { font-size: 12px; color: var(--muted); margin-top: 2px; padding-left: 24px; }
 #sankey { width: 100%; min-width: 1000px; }
 #sankey svg { width: 100%; height: auto; display: block; }
 .src-note { margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--line);

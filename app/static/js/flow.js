@@ -28,9 +28,9 @@
     return String(s).replace(/[&<>"]/g, (c) =>
       ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
   }
-  function yi(v) {                    // 元 → "1193.2亿"（带符号）
+  function yi(v) {                    // 元 → "907.03亿"（2位小数，贴近报表原始数据）
     const s = v < 0 ? "-" : "";
-    return s + (Math.abs(v) / 1e8).toFixed(1) + "亿";
+    return s + (Math.abs(v) / 1e8).toFixed(2) + "亿";
   }
   function pct(v) {                   // 同比 → "+36.7%"
     if (v == null) return null;
